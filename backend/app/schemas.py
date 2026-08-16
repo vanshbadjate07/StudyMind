@@ -1,8 +1,9 @@
+import json
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import DocumentStatus
+from app.models import DocumentStatus, Overview, OverviewStatus
 
 
 class DocumentRead(BaseModel):
@@ -22,3 +23,51 @@ class DocumentRead(BaseModel):
 
 class DocumentList(BaseModel):
     documents: list[DocumentRead]
+
+
+class TopicSummary(BaseModel):
+    title: str
+    summary: str
+    key_concepts: list[str]
+
+
+class OverviewResult(BaseModel):
+    """Validates the LLM's final synthesis output. A degenerate response (no
+    topics, or a nonsensical time estimate) fails validation and is treated
+    as an invalid LLM response — not a "successful" empty overview."""
+
+    topics: list[TopicSummary] = Field(min_length=1)
+    estimated_minutes: int = Field(gt=0)
+
+
+class SectionSummary(BaseModel):
+    """Validates the LLM's per-section map-stage output."""
+
+    summary: str
+
+
+class OverviewRead(BaseModel):
+    id: str
+    document_id: str
+    status: OverviewStatus
+    topics: list[TopicSummary]
+    estimated_minutes: int | None
+    error_reason: str | None
+    error_detail: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_model(cls, overview: Overview) -> "OverviewRead":
+        raw_topics = json.loads(overview.topics_json) if overview.topics_json else []
+        return cls(
+            id=overview.id,
+            document_id=overview.document_id,
+            status=overview.status,
+            topics=[TopicSummary(**topic) for topic in raw_topics],
+            estimated_minutes=overview.estimated_minutes,
+            error_reason=overview.error_reason,
+            error_detail=overview.error_detail,
+            created_at=overview.created_at,
+            updated_at=overview.updated_at,
+        )

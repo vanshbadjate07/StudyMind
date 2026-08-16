@@ -15,6 +15,17 @@ class DocumentStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+class OverviewStatus(str, enum.Enum):
+    PENDING = "pending"
+    GENERATING = "generating"
+    READY = "ready"
+    FAILED = "failed"
+
+
+def _enum_values(enum_cls: type[enum.Enum]) -> list[str]:
+    return [member.value for member in enum_cls]
+
+
 def _uuid() -> str:
     return str(uuid.uuid4())
 
@@ -26,7 +37,7 @@ class Document(Base):
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
     file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     status: Mapped[DocumentStatus] = mapped_column(
-        Enum(DocumentStatus, values_callable=lambda enum_cls: [member.value for member in enum_cls]),
+        Enum(DocumentStatus, values_callable=_enum_values),
         nullable=False,
         default=DocumentStatus.PENDING,
     )
@@ -57,3 +68,31 @@ class Chunk(Base):
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     document: Mapped["Document"] = relationship(back_populates="chunks")
+
+
+class Overview(Base):
+    __tablename__ = "overviews"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    document_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    status: Mapped[OverviewStatus] = mapped_column(
+        Enum(OverviewStatus, values_callable=_enum_values),
+        nullable=False,
+        default=OverviewStatus.PENDING,
+    )
+    # JSON-encoded list of {title, summary, key_concepts: [str]} — read/written as a
+    # whole, never queried piecemeal, so a structured column set would be overkill.
+    topics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    estimated_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

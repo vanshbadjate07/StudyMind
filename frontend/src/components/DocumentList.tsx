@@ -72,7 +72,7 @@ export function DocumentList({ documents, isLoading, onDeleted }: DocumentListPr
 
   return (
     <>
-      <ul role="list" className="divide-y divide-line rounded-xl border border-line bg-surface shadow-sm">
+      <ul role="list" className="divide-y divide-line rounded-xl border border-line bg-surface">
         {documents.map((document) => {
           const summary = summarize(document);
           const isFailed = document.status === "failed";

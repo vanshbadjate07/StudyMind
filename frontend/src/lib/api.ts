@@ -96,7 +96,7 @@ export function uploadDocument(
       reject(new ApiError(xhr.status, detail));
     };
 
-    xhr.onerror = () => reject(new ApiError(0, "Network error — is the server running?"));
+    xhr.onerror = () => reject(new ApiError(0, "Network error. Is the server running?"));
 
     const formData = new FormData();
     formData.append("file", file);

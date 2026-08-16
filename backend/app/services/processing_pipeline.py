@@ -10,6 +10,7 @@ from app.models import Chunk, Document, DocumentStatus
 from app.services.chunking import chunk_text
 from app.services.embeddings import embed_texts
 from app.services.extraction import ExtractedDocument, extract_text
+from app.services.overview_generation import generate_overview
 from app.services.vector_store import VectorStore, get_vector_store
 
 
@@ -59,6 +60,13 @@ async def process_document(
             return
 
         await _mark_ready(session, document_id, chunks, extracted)
+
+        # Chained here so overview generation starts automatically once the
+        # document is ready, per the PRD's core flow. generate_overview owns
+        # its own failure handling end-to-end and always resolves its
+        # Overview row without raising — this is never allowed to undo the
+        # document's READY status above, since the overview is supplementary.
+        await generate_overview(document_id, session)
     except UnsupportedDocumentError as exc:
         vector_store.delete_document(document_id)
         await _mark_failed(session, document_id, exc.reason, exc.detail)

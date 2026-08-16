@@ -56,7 +56,7 @@ export function UploadDropzone({ onUploaded }: UploadDropzoneProps) {
         }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
-        className={`rounded-xl border-2 border-dashed p-8 text-center shadow-sm transition-colors ${
+        className={`rounded-xl border-2 border-dashed p-8 text-center transition-colors ${
           isDragging ? "border-brand bg-brand-subtle" : "border-line-strong bg-surface"
         }`}
       >

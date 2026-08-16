@@ -10,6 +10,7 @@ greenlet==3.1.1
 pymupdf==1.25.2
 sentence-transformers==3.3.1
 chromadb==0.5.23
+ollama==0.6.2
 
 pytest==8.3.4
 pytest-asyncio==0.25.1

@@ -26,7 +26,7 @@ function App() {
             <h1 className="mt-1 text-2xl font-semibold tracking-tight text-ink">Documents</h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-muted">
               Upload a PDF and StudyMind reads it, structures it, and grounds every answer,
-              quiz, and interview question strictly in what you gave it — unless you tell it
+              quiz, and interview question strictly in what you gave it, unless you tell it
               otherwise.
             </p>
           </div>
@@ -38,7 +38,7 @@ function App() {
           <section className="mb-10">
             <h2 className="text-sm font-semibold tracking-tight text-ink">Upload a document</h2>
             <p className="mt-1 mb-4 text-xs text-ink-muted">
-              PDF only for now — more formats are on the way.
+              PDF only for now. More formats are on the way.
             </p>
             <UploadDropzone onUploaded={addDocument} />
           </section>
@@ -46,7 +46,7 @@ function App() {
           <section>
             <h2 className="text-sm font-semibold tracking-tight text-ink">Your documents</h2>
             <p className="mt-1 mb-4 text-xs text-ink-muted">
-              Processing runs in the background — this list updates on its own.
+              Processing runs in the background, and this list updates on its own.
             </p>
             {error && (
               <p role="alert" className="mb-4 text-sm text-status-failed">

@@ -9,8 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import async_session_factory, get_session
-from app.models import Chunk, Document, DocumentStatus
-from app.schemas import DocumentList, DocumentRead
+from app.models import Chunk, Document, DocumentStatus, Overview, OverviewStatus
+from app.schemas import DocumentList, DocumentRead, OverviewRead
+from app.services.overview_generation import generate_overview
 from app.services.processing_pipeline import process_document
 from app.services.vector_store import get_vector_store
 
@@ -110,6 +111,11 @@ async def _run_processing(document_id: str) -> None:
         await process_document(document_id, session)
 
 
+async def _run_overview_generation(document_id: str) -> None:
+    async with async_session_factory() as session:
+        await generate_overview(document_id, session)
+
+
 @router.get("", response_model=DocumentList)
 async def list_documents(session: AsyncSession = Depends(get_session)) -> DocumentList:
     result = await session.execute(select(Document).order_by(Document.created_at.desc()))
@@ -134,5 +140,60 @@ async def delete_document(document_id: str, session: AsyncSession = Depends(get_
     get_vector_store().delete_document(document_id)
 
     await session.execute(sa_delete(Chunk).where(Chunk.document_id == document_id))
+    await session.execute(sa_delete(Overview).where(Overview.document_id == document_id))
     await session.delete(document)
     await session.commit()
+
+
+@router.get("/{document_id}/overview", response_model=OverviewRead)
+async def get_overview(document_id: str, session: AsyncSession = Depends(get_session)) -> OverviewRead:
+    document = await session.get(Document, document_id)
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+
+    result = await session.execute(select(Overview).where(Overview.document_id == document_id))
+    overview = result.scalar_one_or_none()
+    if overview is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Overview has not started yet."
+        )
+    return OverviewRead.from_model(overview)
+
+
+@router.post(
+    "/{document_id}/overview/regenerate", response_model=OverviewRead, status_code=status.HTTP_202_ACCEPTED
+)
+async def regenerate_overview(
+    document_id: str,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+) -> OverviewRead:
+    document = await session.get(Document, document_id)
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+    if document.status != DocumentStatus.READY:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Document is not ready yet (status: {document.status.value}).",
+        )
+
+    result = await session.execute(select(Overview).where(Overview.document_id == document_id))
+    overview = result.scalar_one_or_none()
+    if overview is None:
+        overview = Overview(document_id=document_id, status=OverviewStatus.PENDING)
+        session.add(overview)
+    elif overview.status == OverviewStatus.GENERATING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Overview generation is already in progress for this document.",
+        )
+    else:
+        overview.status = OverviewStatus.PENDING
+        overview.error_reason = None
+        overview.error_detail = None
+    await session.commit()
+    await session.refresh(overview)
+
+    background_tasks.add_task(_run_overview_generation, document_id)
+
+    return OverviewRead.from_model(overview)

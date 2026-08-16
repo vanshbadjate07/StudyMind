@@ -4,16 +4,20 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import db
 from app.config import settings
-from app.db import async_session_factory, init_db
 from app.routers import documents
 from app.services.processing_pipeline import reconcile_interrupted_documents
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    await init_db()
-    async with async_session_factory() as session:
+    await db.init_db()
+    # Accessed via the `db` module (not `from app.db import async_session_factory`)
+    # so tests that monkeypatch `db.async_session_factory` to a test engine are
+    # respected here too — a plain `from`-import would capture the production
+    # value at import time and ignore the patch.
+    async with db.async_session_factory() as session:
         await reconcile_interrupted_documents(session)
     yield
 
