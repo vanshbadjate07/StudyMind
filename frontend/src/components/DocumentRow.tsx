@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { DocumentRecord } from "../lib/api";
 import { DocumentStatusBadge } from "./DocumentStatusBadge";
 import { OverviewPanel } from "./OverviewPanel";
@@ -10,7 +9,6 @@ interface DocumentRowProps {
 }
 
 export function DocumentRow({ document, summary, onDeleteClick }: DocumentRowProps) {
-  const [showOverview, setShowOverview] = useState(false);
   const isFailed = document.status === "failed";
   const isReady = document.status === "ready";
 
@@ -25,15 +23,6 @@ export function DocumentRow({ document, summary, onDeleteClick }: DocumentRowPro
               {summary}
             </p>
           )}
-          {isReady && (
-            <button
-              type="button"
-              onClick={() => setShowOverview((prev) => !prev)}
-              className="mt-1.5 text-xs font-medium text-brand hover:text-brand-hover"
-            >
-              {showOverview ? "Hide overview" : "View overview"}
-            </button>
-          )}
         </div>
         <div className="flex shrink-0 items-center gap-3 pt-0.5">
           <DocumentStatusBadge status={document.status} />
@@ -47,7 +36,7 @@ export function DocumentRow({ document, summary, onDeleteClick }: DocumentRowPro
           </button>
         </div>
       </div>
-      {isReady && showOverview && <OverviewPanel documentId={document.id} />}
+      {isReady && <OverviewPanel documentId={document.id} />}
     </li>
   );
 }
