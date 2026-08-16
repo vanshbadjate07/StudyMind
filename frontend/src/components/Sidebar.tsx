@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { InfoDialog } from "./InfoDialog";
+import { PrivacyContent, TermsContent } from "./LegalContent";
 
 interface NavItem {
   label: string;
@@ -60,6 +62,8 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export function Sidebar() {
+  const [openDialog, setOpenDialog] = useState<"terms" | "privacy" | null>(null);
+
   return (
     <aside className="hidden w-60 shrink-0 border-r border-line bg-surface lg:flex lg:flex-col">
       <div className="flex items-center gap-2.5 border-b border-line px-5 py-4">
@@ -122,7 +126,22 @@ export function Sidebar() {
             Soon
           </span>
         </div>
+        <div className="mt-2 flex gap-3 px-2 text-[11px] text-ink-faint">
+          <button type="button" onClick={() => setOpenDialog("terms")} className="hover:text-ink-muted">
+            Terms
+          </button>
+          <button type="button" onClick={() => setOpenDialog("privacy")} className="hover:text-ink-muted">
+            Privacy
+          </button>
+        </div>
       </div>
+
+      <InfoDialog open={openDialog === "terms"} title="Terms of Service" onClose={() => setOpenDialog(null)}>
+        <TermsContent />
+      </InfoDialog>
+      <InfoDialog open={openDialog === "privacy"} title="Privacy Policy" onClose={() => setOpenDialog(null)}>
+        <PrivacyContent />
+      </InfoDialog>
     </aside>
   );
 }

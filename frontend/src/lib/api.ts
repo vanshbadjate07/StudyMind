@@ -13,6 +13,26 @@ export interface DocumentRecord {
   updated_at: string;
 }
 
+export type OverviewStatus = "pending" | "generating" | "ready" | "failed";
+
+export interface TopicSummary {
+  title: string;
+  summary: string;
+  key_concepts: string[];
+}
+
+export interface OverviewRecord {
+  id: string;
+  document_id: string;
+  status: OverviewStatus;
+  topics: TopicSummary[];
+  estimated_minutes: number | null;
+  error_reason: string | null;
+  error_detail: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 export class ApiError extends Error {
@@ -58,6 +78,23 @@ export async function getDocument(id: string): Promise<DocumentRecord> {
 export async function deleteDocument(id: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/documents/${id}`, { method: "DELETE" });
   await handleResponse<void>(response);
+}
+
+/** Returns null if the overview hasn't started yet (e.g. document isn't ready) — the
+ * backend returns 404 for that case, which isn't an error here, just a "not yet" state. */
+export async function getOverview(documentId: string): Promise<OverviewRecord | null> {
+  const response = await fetch(`${API_BASE_URL}/documents/${documentId}/overview`);
+  if (response.status === 404) {
+    return null;
+  }
+  return handleResponse<OverviewRecord>(response);
+}
+
+export async function regenerateOverview(documentId: string): Promise<OverviewRecord> {
+  const response = await fetch(`${API_BASE_URL}/documents/${documentId}/overview/regenerate`, {
+    method: "POST",
+  });
+  return handleResponse<OverviewRecord>(response);
 }
 
 /** Uses XMLHttpRequest instead of fetch so we can report upload progress —
