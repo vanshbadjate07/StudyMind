@@ -35,6 +35,10 @@ def _stub_ollama_by_default(monkeypatch: pytest.MonkeyPatch, request: pytest.Fix
         "app.services.chat.OllamaClient",
         lambda *args, **kwargs: _StubOllamaClient(),
     )
+    monkeypatch.setattr(
+        "app.services.quiz_generation.OllamaClient",
+        lambda *args, **kwargs: _StubOllamaClient(),
+    )
 
 
 @pytest.fixture

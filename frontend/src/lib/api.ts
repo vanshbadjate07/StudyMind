@@ -35,6 +35,26 @@ export interface OverviewRecord {
   updated_at: string;
 }
 
+export type QuizStatus = "pending" | "generating" | "ready" | "failed";
+
+export interface QuizQuestionRecord {
+  question: string;
+  options: string[];
+  correct_index: number;
+  explanation: string;
+}
+
+export interface QuizRecord {
+  id: string;
+  notebook_id: string;
+  status: QuizStatus;
+  questions: QuizQuestionRecord[];
+  error_reason: string | null;
+  error_detail: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export type GoalType = "exam" | "interview" | "skill" | "exploration" | "custom";
 
 export interface NotebookRecord {
@@ -171,6 +191,24 @@ export async function regenerateNotebookOverview(notebookId: string): Promise<Ov
     method: "POST",
   });
   return handleResponse<OverviewRecord>(response);
+}
+
+/** Unlike the overview, a quiz is never generated automatically — it's
+ * always the user clicking "Generate". Returns null before that first
+ * click (the backend returns 404 for that case). */
+export async function getNotebookQuiz(notebookId: string): Promise<QuizRecord | null> {
+  const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/quiz`);
+  if (response.status === 404) {
+    return null;
+  }
+  return handleResponse<QuizRecord>(response);
+}
+
+export async function generateNotebookQuiz(notebookId: string): Promise<QuizRecord> {
+  const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/quiz/generate`, {
+    method: "POST",
+  });
+  return handleResponse<QuizRecord>(response);
 }
 
 export async function listChatMessages(notebookId: string): Promise<ChatMessageRecord[]> {

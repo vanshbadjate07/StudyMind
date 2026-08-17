@@ -11,9 +11,16 @@ const ERROR_MESSAGES: Record<string, string> = {
     "This looks like a scanned document with no text layer. Scanned PDFs aren't supported yet.",
   processing_error: "Something went wrong while processing this file. Please try again.",
   interrupted: "Processing was interrupted by a server restart. Please try uploading again.",
+  // Shared by overview and quiz generation, not document processing — both
+  // are one LLM call (or several) against a notebook's material, not a file.
+  ollama_unreachable: "Couldn't reach the AI service. Make sure it's running, then try again.",
+  ollama_timeout: "The AI service took too long to respond. Please try again.",
+  invalid_llm_response: "The AI service returned something unexpected. Please try again.",
+  no_content: "There's no processed material to generate this from yet.",
+  generation_error: "Something went wrong. Please try again.",
 };
 
 export function describeErrorReason(reason: string | null): string {
-  if (!reason) return "This document failed to process.";
-  return ERROR_MESSAGES[reason] ?? "This document failed to process.";
+  if (!reason) return "Something went wrong.";
+  return ERROR_MESSAGES[reason] ?? "Something went wrong.";
 }

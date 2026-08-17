@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import db
 from app.config import settings
 from app.db import get_session
-from app.models import ChatMessage, Chunk, Document, DocumentStatus, Notebook, Overview, OverviewStatus
+from app.models import ChatMessage, Chunk, Document, DocumentStatus, Notebook, Overview, OverviewStatus, Quiz
 from app.routers.documents import cleanup_document_storage
 from app.schemas import (
     DocumentList,
@@ -106,6 +106,7 @@ async def delete_notebook(notebook_id: str, session: AsyncSession = Depends(get_
 
     await session.execute(sa_delete(Document).where(Document.notebook_id == notebook_id))
     await session.execute(sa_delete(Overview).where(Overview.notebook_id == notebook_id))
+    await session.execute(sa_delete(Quiz).where(Quiz.notebook_id == notebook_id))
     await session.execute(sa_delete(ChatMessage).where(ChatMessage.notebook_id == notebook_id))
     await session.delete(notebook)
     await session.commit()

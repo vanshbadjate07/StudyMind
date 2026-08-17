@@ -39,7 +39,7 @@ describe("Sidebar", () => {
     expect(screen.getByText("Exam prep")).toBeInTheDocument();
   });
 
-  it("shows the workspace nav once a notebook is open, with Chat and Documents selectable", async () => {
+  it("shows the workspace nav once a notebook is open, with Chat, Quiz, and Documents selectable", async () => {
     const onSelectSection = vi.fn();
     const user = userEvent.setup();
     render(
@@ -52,8 +52,10 @@ describe("Sidebar", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /chat/i }));
-
     expect(onSelectSection).toHaveBeenCalledWith("chat");
+
+    await user.click(screen.getByRole("button", { name: /^quiz$/i }));
+    expect(onSelectSection).toHaveBeenCalledWith("quiz");
   });
 
   it("does not let the user click into a 'Soon' section", async () => {
@@ -69,8 +71,8 @@ describe("Sidebar", () => {
     );
 
     // "Soon" items render as a non-interactive div, not a button.
-    expect(screen.queryByRole("button", { name: /quiz/i })).not.toBeInTheDocument();
-    await user.click(screen.getByText("Quiz"));
+    expect(screen.queryByRole("button", { name: /slides/i })).not.toBeInTheDocument();
+    await user.click(screen.getByText("Slides"));
     expect(onSelectSection).not.toHaveBeenCalled();
   });
 

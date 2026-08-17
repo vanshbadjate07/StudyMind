@@ -4,10 +4,10 @@ import { GOAL_LABELS } from "../lib/goalLabels";
 import { InfoDialog } from "./InfoDialog";
 import { PrivacyContent, TermsContent } from "./LegalContent";
 
-export type WorkspaceSection = "documents" | "chat";
+export type WorkspaceSection = "documents" | "chat" | "quiz";
 
 interface NavItem {
-  section: WorkspaceSection | "quiz" | "slides" | "interview";
+  section: WorkspaceSection | "slides" | "interview";
   label: string;
   icon: ReactNode;
   soon?: boolean;
@@ -33,7 +33,6 @@ const NAV_ITEMS: NavItem[] = [
   {
     section: "quiz",
     label: "Quiz",
-    soon: true,
     icon: (
       <path
         strokeLinecap="round"

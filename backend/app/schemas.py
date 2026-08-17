@@ -3,7 +3,16 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
-from app.models import ChatMessage, ChatRole, DocumentStatus, GoalType, Overview, OverviewStatus
+from app.models import (
+    ChatMessage,
+    ChatRole,
+    DocumentStatus,
+    GoalType,
+    Overview,
+    OverviewStatus,
+    Quiz,
+    QuizStatus,
+)
 
 
 class TimestampedModel(BaseModel):
@@ -124,6 +133,51 @@ class OverviewRead(TimestampedModel):
             error_detail=overview.error_detail,
             created_at=overview.created_at,
             updated_at=overview.updated_at,
+        )
+
+
+class QuizQuestionResult(BaseModel):
+    """Validates one question from the LLM's quiz-generation output."""
+
+    question: str = Field(min_length=1)
+    options: list[str] = Field(min_length=4, max_length=4)
+    correct_index: int = Field(ge=0, le=3)
+    explanation: str = Field(min_length=1)
+
+
+class QuizGenerationResult(BaseModel):
+    questions: list[QuizQuestionResult] = Field(min_length=1)
+
+
+class QuizQuestionRead(BaseModel):
+    question: str
+    options: list[str]
+    correct_index: int
+    explanation: str
+
+
+class QuizRead(TimestampedModel):
+    id: str
+    notebook_id: str
+    status: QuizStatus
+    questions: list[QuizQuestionRead]
+    error_reason: str | None
+    error_detail: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_model(cls, quiz: Quiz) -> "QuizRead":
+        raw_questions = json.loads(quiz.questions_json) if quiz.questions_json else []
+        return cls(
+            id=quiz.id,
+            notebook_id=quiz.notebook_id,
+            status=quiz.status,
+            questions=[QuizQuestionRead(**q) for q in raw_questions],
+            error_reason=quiz.error_reason,
+            error_detail=quiz.error_detail,
+            created_at=quiz.created_at,
+            updated_at=quiz.updated_at,
         )
 
 

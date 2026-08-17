@@ -38,6 +38,16 @@ class Settings(BaseSettings):
     overview_max_section_chars: int = 12000
     overview_max_sections: int = 20
 
+    # Reuses the overview_* sizing settings above for splitting material into
+    # LLM-sized sections — same chunking problem, no need for a second set of
+    # tuning knobs. quiz_llm_timeout_seconds is its own setting, though:
+    # generating several structured multiple-choice questions (4 options +
+    # an explanation each) is a much heavier per-call output than overview's
+    # "summarize in 2-4 sentences", and reusing overview's 120s timeout was
+    # observed timing out on a real multi-document notebook.
+    quiz_question_count: int = 8
+    quiz_llm_timeout_seconds: float = 240.0
+
     chat_model: str = "qwen2.5:3b"
     chat_llm_timeout_seconds: float = 120.0
     chat_context_tokens: int = 8192

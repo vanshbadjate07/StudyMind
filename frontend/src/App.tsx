@@ -5,6 +5,7 @@ import { HomeView } from "./components/HomeView";
 import { HowItWorks } from "./components/HowItWorks";
 import { NotebookHeader } from "./components/NotebookHeader";
 import { OverviewPanel } from "./components/OverviewPanel";
+import { QuizView } from "./components/QuizView";
 import { Sidebar, type WorkspaceSection } from "./components/Sidebar";
 import { UploadDropzone } from "./components/UploadDropzone";
 import { useDocuments } from "./hooks/useDocuments";
@@ -77,6 +78,12 @@ function App() {
           />
         ) : activeSection === "chat" ? (
           <ChatView
+            notebookId={activeNotebook.id}
+            notebookName={activeNotebook.name}
+            hasDocuments={documents.some((doc) => doc.status === "ready")}
+          />
+        ) : activeSection === "quiz" ? (
+          <QuizView
             notebookId={activeNotebook.id}
             notebookName={activeNotebook.name}
             hasDocuments={documents.some((doc) => doc.status === "ready")}

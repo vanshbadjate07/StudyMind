@@ -1,0 +1,210 @@
+import json
+
+from pydantic import BaseModel, ValidationError
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
+from app.errors import QuizGenerationError
+from app.models import Chunk, Document, DocumentStatus, Notebook, Quiz, QuizStatus
+from app.schemas import QuizGenerationResult, QuizQuestionResult
+from app.services.ollama_client import OllamaClient, OllamaTimeoutError, OllamaUnreachableError
+
+MAX_RETRIES = 2
+
+QUIZ_PROMPT_TEMPLATE = (
+    "You are writing a multiple-choice quiz to test understanding of this "
+    "study material. Write exactly {count} questions. Every question must be "
+    "answerable directly from the material below — do not test outside "
+    "knowledge, and do not invent facts the material doesn't state.\n\n"
+    "Respond with ONLY a JSON object matching this exact shape: "
+    '{{"questions": [{{"question": "string", '
+    '"options": ["string", "string", "string", "string"], '
+    '"correct_index": integer (0-3 — the index into options above of the '
+    'correct one), "explanation": "1-2 sentences, grounded in the material, '
+    'explaining why that answer is correct"}}]}}.\n\n'
+    "Each question's four options should be plausible and similar in length "
+    "and specificity — avoid options that are obviously wrong just from how "
+    "they're phrased, and vary which position (0-3) holds the correct answer "
+    "across questions rather than always using the same one.\n\n"
+    "Material:\n{text}"
+)
+
+
+async def generate_quiz(
+    notebook_id: str,
+    session: AsyncSession,
+    client: OllamaClient | None = None,
+) -> None:
+    """Runs section-building -> per-section question generation for one
+    notebook's quiz, always resolving its Quiz row to READY or FAILED. Never
+    raises — this is called from a background task with nothing to report an
+    exception to. The quiz router's generate endpoint already creates/resets
+    the Quiz row to PENDING (in its own request-scoped session, separate
+    from the one this background task uses), but this still gets-or-creates
+    defensively so the function is correct standing alone too — unlike
+    overview generation, quiz generation is only ever user-triggered (never
+    automatically from concurrent document-processing completions), so
+    there's no concurrent-create race here and no need for a per-notebook
+    lock the way overview needs one."""
+    try:
+        await _generate_quiz_body(
+            notebook_id, session, client or OllamaClient(timeout=settings.quiz_llm_timeout_seconds)
+        )
+    except Exception as exc:
+        try:
+            await _mark_failed(session, notebook_id, "generation_error", str(exc))
+        except Exception:
+            pass
+
+
+async def _generate_quiz_body(notebook_id: str, session: AsyncSession, client: OllamaClient) -> None:
+    if await session.get(Notebook, notebook_id) is None:
+        return
+
+    quiz = await _get_or_create_quiz(session, notebook_id)
+    if quiz is None:
+        return
+
+    # Re-check after the (possibly retried) create — the notebook could have
+    # been deleted in the window above.
+    if await session.get(Notebook, notebook_id) is None:
+        return
+
+    quiz.status = QuizStatus.GENERATING
+    await session.commit()
+
+    try:
+        chunks = await _load_chunks(session, notebook_id)
+        sections = _build_sections(chunks)
+        if not sections:
+            raise QuizGenerationError("no_content", "Notebook has no ready documents to quiz on.")
+
+        questions = await _generate_questions(client, sections)
+        if not questions:
+            raise QuizGenerationError("invalid_llm_response", "No valid questions were generated.")
+
+        if await session.get(Notebook, notebook_id) is None:
+            return  # deleted while the LLM call(s) were running; nothing to persist
+
+        await _mark_ready(session, notebook_id, questions)
+    except QuizGenerationError as exc:
+        await _mark_failed(session, notebook_id, exc.reason, exc.detail)
+    except OllamaUnreachableError as exc:
+        await _mark_failed(session, notebook_id, "ollama_unreachable", str(exc))
+    except OllamaTimeoutError as exc:
+        await _mark_failed(session, notebook_id, "ollama_timeout", str(exc))
+
+
+def _build_sections(chunks: list[Chunk]) -> list[str]:
+    """Same splitting strategy as overview_generation._build_sections
+    (reuses its sizing settings) — small notebooks get a single section (one
+    LLM call), larger ones are split so each stays under
+    overview_max_section_chars, capped at overview_max_sections total."""
+    if not chunks:
+        return []
+
+    total_chars = sum(len(chunk.text) for chunk in chunks)
+    if total_chars <= settings.overview_single_pass_char_budget:
+        return ["\n\n".join(chunk.text for chunk in chunks)]
+
+    sections: list[str] = []
+    current: list[str] = []
+    current_chars = 0
+    for chunk in chunks:
+        would_exceed_cap = current_chars + len(chunk.text) > settings.overview_max_section_chars
+        under_section_limit = len(sections) < settings.overview_max_sections - 1
+        if current and would_exceed_cap and under_section_limit:
+            sections.append("\n\n".join(current))
+            current = []
+            current_chars = 0
+        current.append(chunk.text)
+        current_chars += len(chunk.text)
+    if current:
+        sections.append("\n\n".join(current))
+    return sections
+
+
+async def _generate_questions(client: OllamaClient, sections: list[str]) -> list[QuizQuestionResult]:
+    target = settings.quiz_question_count
+    if len(sections) == 1:
+        prompt = QUIZ_PROMPT_TEMPLATE.format(count=target, text=sections[0])
+        result = await _call_with_retry(client, prompt, QuizGenerationResult)
+        return result.questions[:target]
+
+    # ceil(target / num_sections) per section, so a notebook with more
+    # sections than questions still gets at least one question from each.
+    per_section = max(1, -(-target // len(sections)))
+    all_questions: list[QuizQuestionResult] = []
+    for section in sections:
+        prompt = QUIZ_PROMPT_TEMPLATE.format(count=per_section, text=section)
+        result = await _call_with_retry(client, prompt, QuizGenerationResult)
+        all_questions.extend(result.questions)
+    return all_questions[:target]
+
+
+async def _call_with_retry[T: BaseModel](client: OllamaClient, prompt: str, schema: type[T]) -> T:
+    last_detail = ""
+    for _ in range(MAX_RETRIES):
+        raw = await client.generate_json(prompt)
+        try:
+            return schema.model_validate_json(raw)
+        except (ValidationError, json.JSONDecodeError) as exc:
+            last_detail = str(exc)
+    raise QuizGenerationError("invalid_llm_response", last_detail)
+
+
+async def _get_or_create_quiz(session: AsyncSession, notebook_id: str) -> Quiz | None:
+    existing = await _get_quiz(session, notebook_id)
+    if existing is not None:
+        return existing
+
+    quiz = Quiz(notebook_id=notebook_id, status=QuizStatus.PENDING)
+    session.add(quiz)
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Lost a race with a concurrent create for the same notebook
+        # (notebook_id is unique) — use the row the other call created.
+        await session.rollback()
+        return await _get_quiz(session, notebook_id)
+    await session.refresh(quiz)
+    return quiz
+
+
+async def _load_chunks(session: AsyncSession, notebook_id: str) -> list[Chunk]:
+    result = await session.execute(
+        select(Chunk)
+        .join(Document, Chunk.document_id == Document.id)
+        .where(Document.notebook_id == notebook_id, Document.status == DocumentStatus.READY)
+        .order_by(Document.created_at, Chunk.chunk_index)
+    )
+    return list(result.scalars().all())
+
+
+async def _mark_ready(session: AsyncSession, notebook_id: str, questions: list[QuizQuestionResult]) -> None:
+    quiz = await _get_quiz(session, notebook_id)
+    if quiz is None:
+        return
+    quiz.status = QuizStatus.READY
+    quiz.questions_json = json.dumps([q.model_dump() for q in questions])
+    quiz.error_reason = None
+    quiz.error_detail = None
+    await session.commit()
+
+
+async def _mark_failed(session: AsyncSession, notebook_id: str, reason: str, detail: str) -> None:
+    await session.rollback()
+    quiz = await _get_quiz(session, notebook_id)
+    if quiz is None:
+        return
+    quiz.status = QuizStatus.FAILED
+    quiz.error_reason = reason
+    quiz.error_detail = detail or None
+    await session.commit()
+
+
+async def _get_quiz(session: AsyncSession, notebook_id: str) -> Quiz | None:
+    result = await session.execute(select(Quiz).where(Quiz.notebook_id == notebook_id))
+    return result.scalar_one_or_none()
