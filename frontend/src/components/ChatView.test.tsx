@@ -138,14 +138,14 @@ describe("ChatView", () => {
     expect(screen.queryByText(/\*\*MongoDB\*\*/)).not.toBeInTheDocument();
   });
 
-  it("puts a past question back in the composer for editing instead of rewriting history", async () => {
-    // There's no backend support for editing/truncating history in place, so
-    // "edit" repopulates the composer with the original question — the user
-    // tweaks it and resends as a new turn, leaving the original intact.
+  it("edits a past question in place, like Claude/ChatGPT — replacing it and its old answer", async () => {
     vi.spyOn(api, "listChatMessages").mockResolvedValue([
       makeMessage({ id: "m1", role: "user", content: "What is MongoDB?" }),
       makeMessage({ id: "m2", role: "assistant", content: "A NoSQL database." }),
     ]);
+    vi.spyOn(api, "editChatQuestion").mockResolvedValue(
+      makeMessage({ id: "m3", role: "assistant", content: "A document-oriented database." }),
+    );
     const user = userEvent.setup();
 
     render(<ChatView notebookId="nb-1" notebookName="ML Notes" />);
@@ -153,9 +153,44 @@ describe("ChatView", () => {
 
     await user.click(screen.getByRole("button", { name: /edit this question/i }));
 
-    expect(screen.getByLabelText(/your question/i)).toHaveValue("What is MongoDB?");
-    // The original message is untouched — still visible in history (once in
-    // the chat bubble, once as the composer's now-editable value).
-    expect(screen.getAllByText("What is MongoDB?")).toHaveLength(2);
+    // The bubble itself becomes an editable textarea, pre-filled in place —
+    // not a copy sent down to the composer.
+    const editBox = screen.getByLabelText(/edit your question/i);
+    expect(editBox).toHaveValue("What is MongoDB?");
+    await user.clear(editBox);
+    await user.type(editBox, "What is a document database?");
+    await user.click(screen.getByRole("button", { name: /save & submit/i }));
+
+    expect(api.editChatQuestion).toHaveBeenCalledWith(
+      "nb-1",
+      "m1",
+      "What is a document database?",
+      false,
+    );
+    expect(await screen.findByText("A document-oriented database.")).toBeInTheDocument();
+    // The old question and its old answer are gone, replaced in place.
+    expect(screen.queryByText("What is MongoDB?")).not.toBeInTheDocument();
+    expect(screen.queryByText("A NoSQL database.")).not.toBeInTheDocument();
+    expect(screen.getByText("What is a document database?")).toBeInTheDocument();
+  });
+
+  it("cancels an in-progress edit without changing anything", async () => {
+    vi.spyOn(api, "listChatMessages").mockResolvedValue([
+      makeMessage({ id: "m1", role: "user", content: "What is MongoDB?" }),
+      makeMessage({ id: "m2", role: "assistant", content: "A NoSQL database." }),
+    ]);
+    const editSpy = vi.spyOn(api, "editChatQuestion");
+    const user = userEvent.setup();
+
+    render(<ChatView notebookId="nb-1" notebookName="ML Notes" />);
+    await screen.findByText("What is MongoDB?");
+
+    await user.click(screen.getByRole("button", { name: /edit this question/i }));
+    await user.type(screen.getByLabelText(/edit your question/i), " please");
+    await user.click(screen.getByRole("button", { name: /^cancel$/i }));
+
+    expect(editSpy).not.toHaveBeenCalled();
+    expect(screen.getByText("What is MongoDB?")).toBeInTheDocument();
+    expect(screen.getByText("A NoSQL database.")).toBeInTheDocument();
   });
 });

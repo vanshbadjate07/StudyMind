@@ -100,4 +100,48 @@ describe("useChat", () => {
     expect(askSpy).not.toHaveBeenCalled();
     expect(result.current.messages).toEqual([]);
   });
+
+  it("edits a past question: truncates everything from it onward, then appends the new reply", async () => {
+    vi.spyOn(api, "listChatMessages").mockResolvedValue([
+      makeMessage({ id: "m1", role: "user", content: "First question?" }),
+      makeMessage({ id: "m2", role: "assistant", content: "First answer." }),
+      makeMessage({ id: "m3", role: "user", content: "Second question?" }),
+      makeMessage({ id: "m4", role: "assistant", content: "Second answer." }),
+    ]);
+    vi.spyOn(api, "editChatQuestion").mockResolvedValue(
+      makeMessage({ id: "m5", content: "Edited answer." }),
+    );
+
+    const { result } = renderHook(() => useChat("nb-1"));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.editMessage("m1", "Edited question?", false);
+    });
+
+    expect(api.editChatQuestion).toHaveBeenCalledWith("nb-1", "m1", "Edited question?", false);
+    expect(result.current.messages.map((m) => m.content)).toEqual([
+      "Edited question?",
+      "Edited answer.",
+    ]);
+  });
+
+  it("keeps the truncated state and surfaces an error if an edit's re-ask fails", async () => {
+    vi.spyOn(api, "listChatMessages").mockResolvedValue([
+      makeMessage({ id: "m1", role: "user", content: "First question?" }),
+      makeMessage({ id: "m2", role: "assistant", content: "First answer." }),
+    ]);
+    vi.spyOn(api, "editChatQuestion").mockRejectedValue(new api.ApiError(503, "AI service unreachable."));
+
+    const { result } = renderHook(() => useChat("nb-1"));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.editMessage("m1", "Edited question?", false);
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0]).toMatchObject({ role: "user", content: "Edited question?" });
+    expect(result.current.sendError).toBe("AI service unreachable.");
+  });
 });

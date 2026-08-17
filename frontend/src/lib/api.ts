@@ -192,6 +192,20 @@ export async function askChatQuestion(
   return handleResponse<ChatMessageRecord>(response);
 }
 
+export async function editChatQuestion(
+  notebookId: string,
+  messageId: string,
+  question: string,
+  internetMode: boolean,
+): Promise<ChatMessageRecord> {
+  const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/chat/messages/${messageId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, internet_mode: internetMode }),
+  });
+  return handleResponse<ChatMessageRecord>(response);
+}
+
 /** Uses XMLHttpRequest instead of fetch so we can report upload progress —
  * fetch has no cross-browser-reliable way to observe request body progress. */
 export function uploadDocument(

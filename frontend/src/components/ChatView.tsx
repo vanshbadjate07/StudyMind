@@ -9,27 +9,32 @@ interface ChatViewProps {
 }
 
 export function ChatView({ notebookId, notebookName }: ChatViewProps) {
-  const { messages, isLoading, historyError, isSending, sendError, sendMessage } = useChat(notebookId);
+  const { messages, isLoading, historyError, isSending, sendError, sendMessage, editMessage } =
+    useChat(notebookId);
   const [draft, setDraft] = useState("");
   const [internetMode, setInternetMode] = useState(false);
+  // Only one message can be under edit at a time — starting a new edit
+  // implicitly cancels whichever one was open, same as other chat apps.
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [messages, isSending]);
 
+  const isComposerDisabled = isSending || editingMessageId !== null;
+
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!draft.trim() || isSending) return;
+    if (!draft.trim() || isComposerDisabled) return;
     const question = draft;
     setDraft("");
     void sendMessage(question, internetMode);
   };
 
-  const handleEdit = (content: string) => {
-    setDraft(content);
-    textareaRef.current?.focus();
+  const handleEditSave = (messageId: string, content: string) => {
+    setEditingMessageId(null);
+    void editMessage(messageId, content, internetMode);
   };
 
   return (
@@ -59,7 +64,15 @@ export function ChatView({ notebookId, notebookName }: ChatViewProps) {
         ) : (
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
             {messages.map((message) => (
-              <ChatBubble key={message.id} message={message} onEdit={handleEdit} />
+              <ChatBubble
+                key={message.id}
+                message={message}
+                isEditing={editingMessageId === message.id}
+                canEdit={!isSending && editingMessageId === null}
+                onStartEdit={() => setEditingMessageId(message.id)}
+                onCancelEdit={() => setEditingMessageId(null)}
+                onSaveEdit={(content) => handleEditSave(message.id, content)}
+              />
             ))}
           </div>
         )}
@@ -75,7 +88,6 @@ export function ChatView({ notebookId, notebookName }: ChatViewProps) {
           )}
           <div className="flex items-end gap-2">
             <textarea
-              ref={textareaRef}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
@@ -84,15 +96,17 @@ export function ChatView({ notebookId, notebookName }: ChatViewProps) {
                   handleSubmit(event);
                 }
               }}
-              placeholder="Ask a question about your notebook…"
+              placeholder={
+                editingMessageId !== null ? "Finish editing your question above…" : "Ask a question about your notebook…"
+              }
               rows={1}
-              disabled={isSending}
+              disabled={isComposerDisabled}
               aria-label="Your question"
               className="min-h-[42px] flex-1 resize-none rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-ink placeholder:text-ink-faint focus:border-brand focus:outline-none disabled:opacity-60"
             />
             <button
               type="submit"
-              disabled={isSending || !draft.trim()}
+              disabled={isComposerDisabled || !draft.trim()}
               className="shrink-0 rounded-lg bg-brand px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
             >
               {isSending ? "Asking…" : "Ask"}
@@ -115,12 +129,29 @@ export function ChatView({ notebookId, notebookName }: ChatViewProps) {
 
 function ChatBubble({
   message,
-  onEdit,
+  isEditing,
+  canEdit,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
 }: {
   message: ChatMessageRecord;
-  onEdit: (content: string) => void;
+  isEditing: boolean;
+  canEdit: boolean;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (content: string) => void;
 }) {
   const isUser = message.role === "user";
+
+  if (isUser && isEditing) {
+    return (
+      <div className="flex flex-col items-end">
+        <EditingComposer initialContent={message.content} onCancel={onCancelEdit} onSave={onSaveEdit} />
+      </div>
+    );
+  }
+
   return (
     <div className={`group flex flex-col ${isUser ? "items-end" : "items-start"}`}>
       <div className={`flex items-center gap-1.5 ${isUser ? "flex-row-reverse" : ""}`}>
@@ -133,10 +164,10 @@ function ChatBubble({
         >
           {isUser ? message.content : <MarkdownContent content={message.content} />}
         </div>
-        {isUser && (
+        {isUser && canEdit && (
           <button
             type="button"
-            onClick={() => onEdit(message.content)}
+            onClick={onStartEdit}
             aria-label="Edit this question"
             className="shrink-0 rounded-lg p-1.5 text-ink-faint opacity-0 transition-opacity hover:bg-paper hover:text-ink group-hover:opacity-100 focus-visible:opacity-100"
           >
@@ -162,6 +193,71 @@ function ChatBubble({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function EditingComposer({
+  initialContent,
+  onCancel,
+  onSave,
+}: {
+  initialContent: string;
+  onCancel: () => void;
+  onSave: (content: string) => void;
+}) {
+  const [draft, setDraft] = useState(initialContent);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, []);
+
+  const commit = () => {
+    const trimmed = draft.trim();
+    if (!trimmed) return;
+    onSave(trimmed);
+  };
+
+  return (
+    <div className="w-full max-w-[85%]">
+      <textarea
+        ref={textareaRef}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            commit();
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
+        rows={Math.min(8, draft.split("\n").length)}
+        aria-label="Edit your question"
+        className="w-full resize-none rounded-xl border border-brand bg-surface px-4 py-2.5 text-sm leading-relaxed text-ink focus:outline-none"
+      />
+      <div className="mt-1.5 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-lg px-3 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-paper hover:text-ink"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={commit}
+          disabled={!draft.trim()}
+          className="rounded-lg bg-brand px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
+        >
+          Save &amp; submit
+        </button>
+      </div>
     </div>
   );
 }

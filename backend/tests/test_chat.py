@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.db import Base
 from app.models import ChatMessage, ChatRole, Document, DocumentStatus, GoalType, Notebook, Overview, OverviewStatus
-from app.services.chat import ask_question
+from app.services.chat import ask_question, edit_question
 from app.services.embeddings import embed_texts
 from app.services.vector_store import VectorStore
 
@@ -331,3 +331,51 @@ class TestGoalAwarePrompting:
 
         assert "the user's goal" not in client.prompts[0].lower()
         assert "the user is" not in client.prompts[0].lower()
+
+
+class TestEditQuestion:
+    async def test_edit_replaces_the_question_and_discards_everything_after_it(
+        self, session: AsyncSession, vector_store: VectorStore
+    ) -> None:
+        notebook = await _create_notebook(session, name="ML Notes")
+        await _add_ready_document(session, vector_store, notebook.id, "ml.pdf", ML_TEXTS, pages=[1, 2, 3])
+        client = ScriptedTextClient(["First answer.", "Second answer.", "Edited answer."])
+
+        await ask_question(notebook, "What is machine learning?", False, session, vector_store, client)
+        await ask_question(
+            notebook, "How is that different from deep learning?", False, session, vector_store, client
+        )
+        messages = await _messages_for(session, notebook.id)
+        assert len(messages) == 4
+        target = messages[0]  # "What is machine learning?"
+
+        reply = await edit_question(
+            notebook, target, "What is supervised learning?", False, session, vector_store, client
+        )
+
+        assert reply.content == "Edited answer."
+        remaining = await _messages_for(session, notebook.id)
+        assert [m.content for m in remaining] == ["What is supervised learning?", "Edited answer."]
+
+    async def test_edit_history_only_includes_turns_before_the_edited_message(
+        self, session: AsyncSession, vector_store: VectorStore
+    ) -> None:
+        notebook = await _create_notebook(session, name="ML Notes")
+        await _add_ready_document(session, vector_store, notebook.id, "ml.pdf", ML_TEXTS, pages=[1, 2, 3])
+        client = ScriptedTextClient(["First answer.", "Second answer.", "Edited answer."])
+
+        await ask_question(notebook, "What is machine learning?", False, session, vector_store, client)
+        messages = await _messages_for(session, notebook.id)
+        second_target_index = len(messages)  # points at the next user message, added below
+        await ask_question(
+            notebook, "How is that different from deep learning?", False, session, vector_store, client
+        )
+        messages = await _messages_for(session, notebook.id)
+        target = messages[second_target_index]  # "How is that different from deep learning?"
+
+        await edit_question(notebook, target, "What is unsupervised learning?", False, session, vector_store, client)
+
+        edited_prompt = client.prompts[-1]
+        assert "what is unsupervised learning?" in edited_prompt.lower()
+        assert "first answer." in edited_prompt.lower()  # prior turn kept
+        assert "how is that different from deep learning?" not in edited_prompt.lower()  # discarded turn

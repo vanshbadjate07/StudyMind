@@ -171,3 +171,65 @@ def test_ask_question_rejects_empty_question(client: TestClient) -> None:
         f"/notebooks/{notebook_id}/chat/messages", json={"question": "", "internet_mode": False}
     )
     assert response.status_code == 422
+
+
+def test_edit_question_replaces_it_and_drops_everything_after(client: TestClient, monkeypatch) -> None:
+    fake = _FakeTextClient("First answer.")
+    monkeypatch.setattr("app.services.chat.OllamaClient", lambda *a, **k: fake)
+    notebook_id = _ready_notebook(client)
+
+    first = client.post(
+        f"/notebooks/{notebook_id}/chat/messages",
+        json={"question": "First question?", "internet_mode": False},
+    ).json()
+    user_message_id = client.get(f"/notebooks/{notebook_id}/chat/messages").json()["messages"][0]["id"]
+
+    fake._text = "Edited answer."
+    response = client.put(
+        f"/notebooks/{notebook_id}/chat/messages/{user_message_id}",
+        json={"question": "Edited question?", "internet_mode": False},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["content"] == "Edited answer."
+    assert body["id"] != first["id"]
+
+    history = client.get(f"/notebooks/{notebook_id}/chat/messages").json()["messages"]
+    assert [m["content"] for m in history] == ["Edited question?", "Edited answer."]
+
+
+def test_edit_question_missing_notebook_404(client: TestClient) -> None:
+    response = client.put(
+        "/notebooks/does-not-exist/chat/messages/does-not-exist",
+        json={"question": "Hi?", "internet_mode": False},
+    )
+    assert response.status_code == 404
+
+
+def test_edit_question_missing_message_404(client: TestClient) -> None:
+    notebook_id = _create_notebook(client)
+    response = client.put(
+        f"/notebooks/{notebook_id}/chat/messages/does-not-exist",
+        json={"question": "Hi?", "internet_mode": False},
+    )
+    assert response.status_code == 404
+
+
+def test_edit_question_rejects_editing_an_assistant_message(client: TestClient, monkeypatch) -> None:
+    fake = _FakeTextClient("An answer.")
+    monkeypatch.setattr("app.services.chat.OllamaClient", lambda *a, **k: fake)
+    notebook_id = _ready_notebook(client)
+
+    client.post(
+        f"/notebooks/{notebook_id}/chat/messages",
+        json={"question": "A question?", "internet_mode": False},
+    )
+    assistant_message_id = client.get(f"/notebooks/{notebook_id}/chat/messages").json()["messages"][1]["id"]
+
+    response = client.put(
+        f"/notebooks/{notebook_id}/chat/messages/{assistant_message_id}",
+        json={"question": "Trying to edit the answer instead", "internet_mode": False},
+    )
+
+    assert response.status_code == 400

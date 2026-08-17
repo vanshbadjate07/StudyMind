@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from sqlalchemy import select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -258,3 +258,33 @@ async def ask_question(
     await session.commit()
     await session.refresh(assistant_message)
     return assistant_message
+
+
+async def edit_question(
+    notebook: Notebook,
+    target: ChatMessage,
+    question: str,
+    internet_mode: bool,
+    session: AsyncSession,
+    vector_store: VectorStore | None = None,
+    client: OllamaClient | None = None,
+) -> ChatMessage:
+    """Edits a past question in place, the way Claude/ChatGPT do it: the
+    edited question becomes the new end of the conversation, and everything
+    after it — its old answer, and any later back-and-forth — is discarded
+    rather than kept as an orphaned branch, since this app has no UI for
+    multiple conversation branches. Re-asks through ask_question so
+    grounding, retries, and persistence all behave identically to a fresh
+    question. Callers must have already verified `target` belongs to this
+    notebook and is a user message."""
+    await session.execute(
+        delete(ChatMessage).where(
+            ChatMessage.notebook_id == notebook.id,
+            or_(
+                ChatMessage.created_at > target.created_at,
+                and_(ChatMessage.created_at == target.created_at, ChatMessage.id >= target.id),
+            ),
+        )
+    )
+    await session.commit()
+    return await ask_question(notebook, question, internet_mode, session, vector_store, client)

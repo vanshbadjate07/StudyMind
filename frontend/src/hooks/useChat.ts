@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
-import { ApiError, askChatQuestion, listChatMessages, type ChatMessageRecord } from "../lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ApiError,
+  askChatQuestion,
+  editChatQuestion,
+  listChatMessages,
+  type ChatMessageRecord,
+} from "../lib/api";
 
 export function useChat(notebookId: string | null) {
   const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
@@ -7,6 +13,8 @@ export function useChat(notebookId: string | null) {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const messagesRef = useRef<ChatMessageRecord[]>([]);
+  messagesRef.current = messages;
 
   useEffect(() => {
     if (notebookId === null) {
@@ -72,5 +80,43 @@ export function useChat(notebookId: string | null) {
     [notebookId],
   );
 
-  return { messages, isLoading, historyError, isSending, sendError, sendMessage };
+  // Edits a past question in place, Claude/ChatGPT-style: the edited
+  // question becomes the new end of the conversation, and everything after
+  // it (its old answer, any later turns) is discarded — the backend does
+  // the same truncation (see chat.py's edit_question), so this optimistic
+  // update just mirrors what the server is about to do.
+  const editMessage = useCallback(
+    async (messageId: string, question: string, internetMode: boolean) => {
+      if (notebookId === null) return;
+      const trimmed = question.trim();
+      if (!trimmed) return;
+
+      const index = messagesRef.current.findIndex((m) => m.id === messageId);
+      if (index === -1) return;
+
+      const optimisticUserMessage: ChatMessageRecord = {
+        id: `optimistic-${Date.now()}`,
+        role: "user",
+        content: trimmed,
+        citations: [],
+        grounded: false,
+        used_internet: false,
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev.slice(0, index), optimisticUserMessage]);
+      setIsSending(true);
+      setSendError(null);
+      try {
+        const assistantMessage = await editChatQuestion(notebookId, messageId, trimmed, internetMode);
+        setMessages((prev) => [...prev, assistantMessage]);
+      } catch (err) {
+        setSendError(err instanceof ApiError ? err.message : "Couldn't reach the AI service.");
+      } finally {
+        setIsSending(false);
+      }
+    },
+    [notebookId],
+  );
+
+  return { messages, isLoading, historyError, isSending, sendError, sendMessage, editMessage };
 }
