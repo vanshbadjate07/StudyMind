@@ -43,10 +43,17 @@ class Settings(BaseSettings):
     chat_context_tokens: int = 8192
     chat_top_k: int = 6
     # Chroma L2 distance (embeddings are normalized, so this ranges roughly
-    # 0-4). Empirically, relevant matches against this project's embedding
-    # model land well under 1.0 and irrelevant ones well over 1.7 — this
-    # threshold sits with margin on both sides of that gap.
-    chat_relevance_distance_threshold: float = 1.3
+    # 0-4). The old value here (1.3) was calibrated against wildly-different
+    # topics (biology vs. basketball) which land well over 1.7 — but a
+    # same-broad-domain, different-subtopic pair (e.g. a "Python looping"
+    # question against "combinatorial testing" material — both CS-adjacent)
+    # lands around 1.27-1.37, which slipped under 1.3 and got cited as if it
+    # answered the question. Empirically, on-topic matches (exact, paraphrased,
+    # or an adjacent subtopic of the same excerpt) land at ~0.46-1.10;
+    # same-domain-but-unrelated content lands at ~1.27+. This sits with
+    # margin on both sides of THAT gap, not the wider (and less realistic)
+    # one the old value was tuned against.
+    chat_relevance_distance_threshold: float = 1.15
     # How many prior messages (user + assistant combined) to include as
     # conversation context for follow-up questions.
     chat_history_messages: int = 8

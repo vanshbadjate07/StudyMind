@@ -19,3 +19,14 @@ if (!HTMLDialogElement.prototype.close) {
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = function () {}
 }
+
+// jsdom doesn't implement the Clipboard API — components with a "copy to
+// clipboard" button (e.g. chat messages) call navigator.clipboard.writeText
+// regardless of test environment. A real Promise-returning stub, not a
+// silent no-op, so tests can spy on it and assert what was copied.
+if (!navigator.clipboard) {
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText: async () => {} },
+    configurable: true,
+  })
+}

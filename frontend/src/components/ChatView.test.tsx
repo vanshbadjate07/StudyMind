@@ -202,4 +202,36 @@ describe("ChatView", () => {
     expect(screen.getByText("What is MongoDB?")).toBeInTheDocument();
     expect(screen.getByText("A NoSQL database.")).toBeInTheDocument();
   });
+
+  it("copies a question's text to the clipboard", async () => {
+    vi.spyOn(api, "listChatMessages").mockResolvedValue([
+      makeMessage({ id: "m1", role: "user", content: "What is MongoDB?" }),
+    ]);
+    const writeTextSpy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    const user = userEvent.setup();
+
+    render(<ChatView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
+    await screen.findByText("What is MongoDB?");
+
+    await user.click(screen.getByRole("button", { name: /copy this question/i }));
+
+    expect(writeTextSpy).toHaveBeenCalledWith("What is MongoDB?");
+    expect(await screen.findByRole("button", { name: /^copied$/i })).toBeInTheDocument();
+  });
+
+  it("copies an assistant response's text to the clipboard", async () => {
+    vi.spyOn(api, "listChatMessages").mockResolvedValue([
+      makeMessage({ id: "m1", role: "assistant", content: "MongoDB is a NoSQL database." }),
+    ]);
+    const writeTextSpy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    const user = userEvent.setup();
+
+    render(<ChatView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
+    await screen.findByText("MongoDB is a NoSQL database.");
+
+    await user.click(screen.getByRole("button", { name: /copy this response/i }));
+
+    expect(writeTextSpy).toHaveBeenCalledWith("MongoDB is a NoSQL database.");
+    expect(await screen.findByRole("button", { name: /^copied$/i })).toBeInTheDocument();
+  });
 });

@@ -254,6 +254,37 @@ class TestGroundedAnswers:
 
 
 class TestUngroundedAnswers:
+    async def test_same_domain_different_subtopic_question_is_not_grounded_by_retrieval_alone(
+        self, session: AsyncSession, vector_store: VectorStore
+    ) -> None:
+        """Regression test for the recalibrated relevance threshold (was
+        1.3, now 1.15): a same-broad-domain (both CS-adjacent) but
+        substantively unrelated question used to slip under the old, looser
+        threshold on vector distance alone — a Python-looping question
+        retrieving combinatorial-testing material, exactly the reported bug.
+        Checks that retrieval itself now excludes it, independent of the
+        model's own refusal wording (see TestGroundedAnswers's
+        distance-threshold-false-positive test for that separate safety net)."""
+        notebook = await _create_notebook(session, name="Software Testing Fundamentals")
+        await _add_ready_document(
+            session,
+            vector_store,
+            notebook.id,
+            "week11.pdf",
+            [
+                "Combinatorial testing and equivalence partitioning reduce the number of "
+                "test cases needed to validate software with multiple input parameters."
+            ],
+            pages=[2],
+        )
+        await _add_ready_overview(session, notebook.id, "This covers software testing techniques.")
+        client = ScriptedTextClient(["Python uses for and while loops to repeat code."])
+
+        reply = await ask_question(notebook, "What is python looping", False, session, vector_store, client)
+
+        assert reply.grounded is False
+        assert reply.citations_json is None
+
     async def test_irrelevant_question_without_internet_mode_still_gets_a_real_answer(
         self, session: AsyncSession, vector_store: VectorStore
     ) -> None:

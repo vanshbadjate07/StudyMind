@@ -177,16 +177,24 @@ function ChatBubble({
         >
           {isUser ? message.content : <MarkdownContent content={message.content} />}
         </div>
-        {isUser && canEdit && (
-          <button
-            type="button"
-            onClick={onStartEdit}
-            aria-label="Edit this question"
-            className="shrink-0 rounded-lg p-1.5 text-ink-faint opacity-0 transition-opacity hover:bg-paper hover:text-ink group-hover:opacity-100 focus-visible:opacity-100"
-          >
-            <EditIcon />
-          </button>
-        )}
+        <div
+          className={`flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 ${isUser ? "flex-row-reverse" : ""}`}
+        >
+          <CopyButton
+            content={message.content}
+            label={isUser ? "Copy this question" : "Copy this response"}
+          />
+          {isUser && canEdit && (
+            <button
+              type="button"
+              onClick={onStartEdit}
+              aria-label="Edit this question"
+              className="rounded-lg p-1.5 text-ink-faint transition-colors hover:bg-paper hover:text-ink"
+            >
+              <EditIcon />
+            </button>
+          )}
+        </div>
       </div>
       {!isUser && message.used_internet && (
         <span className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-line-strong px-2 py-0.5 text-[11px] font-medium text-ink-muted">
@@ -310,6 +318,77 @@ function MarkdownContent({ content }: { content: string }) {
         {content}
       </Markdown>
     </div>
+  );
+}
+
+const COPY_CONFIRMATION_MS = 1500;
+
+function CopyButton({ content, label }: { content: string; label: string }) {
+  const [isCopied, setIsCopied] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  const handleClick = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setIsCopied(true);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => setIsCopied(false), COPY_CONFIRMATION_MS);
+    } catch {
+      // Clipboard access can be denied by the browser — silently no-op
+      // rather than surfacing an error for a non-critical convenience action.
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleClick()}
+      aria-label={isCopied ? "Copied" : label}
+      className="rounded-lg p-1.5 text-ink-faint transition-colors hover:bg-paper hover:text-ink"
+    >
+      {isCopied ? <CheckIcon /> : <CopyIcon />}
+    </button>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      className="h-3.5 w-3.5"
+    >
+      <rect x="8" y="8" width="12" height="12" rx="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"
+      />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      className="h-3.5 w-3.5 text-status-ready"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="m5 13 4 4L19 7" />
+    </svg>
   );
 }
 
