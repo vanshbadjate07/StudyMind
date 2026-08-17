@@ -14,7 +14,9 @@ class Settings(BaseSettings):
     database_url: str = f"sqlite+aiosqlite:///{BACKEND_DIR / 'data' / 'studymind.db'}"
 
     max_upload_bytes: int = 50 * 1024 * 1024
-    allowed_extensions: tuple[str, ...] = (".pdf",)
+    # Keep in sync with app.services.extraction.extract_text's dispatch —
+    # that's what actually determines what can be parsed.
+    allowed_extensions: tuple[str, ...] = (".pdf", ".txt", ".md", ".docx", ".pptx")
 
     chunk_size_chars: int = 1000
     chunk_overlap_chars: int = 150

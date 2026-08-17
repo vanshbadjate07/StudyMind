@@ -4,16 +4,16 @@ import * as api from "../lib/api";
 import { UploadDropzone } from "./UploadDropzone";
 
 describe("UploadDropzone", () => {
-  it("rejects a non-PDF file without calling the API", async () => {
+  it("rejects an unsupported file type without calling the API", async () => {
     const uploadSpy = vi.spyOn(api, "uploadDocument");
     const onUploaded = vi.fn();
     render(<UploadDropzone notebookId="notebook-1" onUploaded={onUploaded} />);
 
-    const input = screen.getByLabelText(/upload pdf document/i);
-    const file = new File(["hello"], "notes.txt", { type: "text/plain" });
+    const input = screen.getByLabelText(/upload a document/i);
+    const file = new File(["hello"], "photo.png", { type: "image/png" });
     fireEvent.change(input, { target: { files: [file] } });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/only pdf files/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/unsupported file type/i);
     expect(uploadSpy).not.toHaveBeenCalled();
     expect(onUploaded).not.toHaveBeenCalled();
   });
@@ -22,7 +22,7 @@ describe("UploadDropzone", () => {
     const uploadSpy = vi.spyOn(api, "uploadDocument");
     render(<UploadDropzone notebookId="notebook-1" onUploaded={vi.fn()} />);
 
-    const input = screen.getByLabelText(/upload pdf document/i);
+    const input = screen.getByLabelText(/upload a document/i);
     const oversizedBytes = new Uint8Array(51 * 1024 * 1024);
     const file = new File([oversizedBytes], "huge.pdf", { type: "application/pdf" });
     fireEvent.change(input, { target: { files: [file] } });
@@ -35,7 +35,7 @@ describe("UploadDropzone", () => {
     const uploadSpy = vi.spyOn(api, "uploadDocument");
     render(<UploadDropzone notebookId="notebook-1" onUploaded={vi.fn()} />);
 
-    const input = screen.getByLabelText(/upload pdf document/i);
+    const input = screen.getByLabelText(/upload a document/i);
     const file = new File([], "empty.pdf", { type: "application/pdf" });
     fireEvent.change(input, { target: { files: [file] } });
 
@@ -61,7 +61,7 @@ describe("UploadDropzone", () => {
     const onUploaded = vi.fn();
     render(<UploadDropzone notebookId="notebook-1" onUploaded={onUploaded} />);
 
-    const input = screen.getByLabelText(/upload pdf document/i);
+    const input = screen.getByLabelText(/upload a document/i);
     const file = new File(["%PDF-1.4 fake content"], "notes.pdf", { type: "application/pdf" });
     fireEvent.change(input, { target: { files: [file] } });
 
@@ -73,7 +73,7 @@ describe("UploadDropzone", () => {
     vi.spyOn(api, "uploadDocument").mockRejectedValue(new api.ApiError(400, "File does not look like a valid PDF."));
     render(<UploadDropzone notebookId="notebook-1" onUploaded={vi.fn()} />);
 
-    const input = screen.getByLabelText(/upload pdf document/i);
+    const input = screen.getByLabelText(/upload a document/i);
     const file = new File(["not really a pdf"], "fake.pdf", { type: "application/pdf" });
     fireEvent.change(input, { target: { files: [file] } });
 
@@ -100,7 +100,7 @@ describe("UploadDropzone", () => {
     const onUploaded = vi.fn();
     render(<UploadDropzone notebookId="notebook-1" onUploaded={onUploaded} />);
 
-    const input = screen.getByLabelText(/upload pdf document/i);
+    const input = screen.getByLabelText(/upload a document/i);
     const fileA = new File(["%PDF-1.4 a"], "a.pdf", { type: "application/pdf" });
     const fileB = new File(["%PDF-1.4 b"], "b.pdf", { type: "application/pdf" });
     fireEvent.change(input, { target: { files: [fileA, fileB] } });
@@ -129,12 +129,12 @@ describe("UploadDropzone", () => {
     const onUploaded = vi.fn();
     render(<UploadDropzone notebookId="notebook-1" onUploaded={onUploaded} />);
 
-    const input = screen.getByLabelText(/upload pdf document/i);
-    const badFile = new File(["hello"], "notes.txt", { type: "text/plain" });
+    const input = screen.getByLabelText(/upload a document/i);
+    const badFile = new File(["hello"], "photo.png", { type: "image/png" });
     const goodFile = new File(["%PDF-1.4 good"], "good.pdf", { type: "application/pdf" });
     fireEvent.change(input, { target: { files: [badFile, goodFile] } });
 
     await waitFor(() => expect(onUploaded).toHaveBeenCalledWith(fakeDocument));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/only pdf files/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/unsupported file type/i);
   });
 });

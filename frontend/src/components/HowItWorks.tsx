@@ -1,7 +1,7 @@
 const STEPS = [
   {
     title: "Upload",
-    description: "Add a PDF of your notes, textbook chapter, or slides.",
+    description: "Add your notes, textbook chapter, or slides — PDF, Word, PowerPoint, or text.",
   },
   {
     title: "Understand",

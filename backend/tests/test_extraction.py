@@ -71,3 +71,81 @@ def test_missing_file_raises_invalid_pdf() -> None:
         extract_text(FIXTURES / "does_not_exist.pdf")
 
     assert exc_info.value.reason == "invalid_pdf"
+
+
+def test_unsupported_extension_raises_unsupported_file_type() -> None:
+    with pytest.raises(UnsupportedDocumentError) as exc_info:
+        extract_text(FIXTURES / "normal.pdf".replace(".pdf", ".xyz"))  # never generated, just wrong suffix
+
+    assert exc_info.value.reason == "unsupported_file_type"
+
+
+class TestDocxExtraction:
+    def test_normal_docx_extracts_paragraph_text_with_no_page_number(self) -> None:
+        doc = extract_text(FIXTURES / "normal.docx")
+
+        assert doc.page_count == 1
+        assert doc.pages[0].page_number is None
+        assert "machine learning" in doc.full_text.lower()
+        assert "backpropagation" in doc.full_text.lower()
+
+    def test_empty_docx_raises_empty_document(self) -> None:
+        with pytest.raises(UnsupportedDocumentError) as exc_info:
+            extract_text(FIXTURES / "empty.docx")
+
+        assert exc_info.value.reason == "empty_document"
+
+    def test_corrupted_docx_raises_invalid_docx(self) -> None:
+        with pytest.raises(UnsupportedDocumentError) as exc_info:
+            extract_text(FIXTURES / "corrupted.docx")
+
+        assert exc_info.value.reason == "invalid_docx"
+
+
+class TestPptxExtraction:
+    def test_normal_pptx_extracts_one_page_per_slide(self) -> None:
+        doc = extract_text(FIXTURES / "normal.pptx")
+
+        assert doc.page_count == 2
+        assert doc.pages[0].page_number == 1
+        assert doc.pages[1].page_number == 2
+        assert "machine learning" in doc.full_text.lower()
+        assert "backpropagation" in doc.full_text.lower()
+
+    def test_empty_pptx_raises_empty_document(self) -> None:
+        with pytest.raises(UnsupportedDocumentError) as exc_info:
+            extract_text(FIXTURES / "empty.pptx")
+
+        assert exc_info.value.reason == "empty_document"
+
+    def test_corrupted_pptx_raises_invalid_pptx(self) -> None:
+        with pytest.raises(UnsupportedDocumentError) as exc_info:
+            extract_text(FIXTURES / "corrupted.pptx")
+
+        assert exc_info.value.reason == "invalid_pptx"
+
+
+class TestPlainTextExtraction:
+    def test_normal_txt_extracts_with_no_page_number(self) -> None:
+        doc = extract_text(FIXTURES / "normal.txt")
+
+        assert doc.page_count == 1
+        assert doc.pages[0].page_number is None
+        assert "machine learning" in doc.full_text.lower()
+
+    def test_normal_md_extracts_including_markdown_syntax(self) -> None:
+        doc = extract_text(FIXTURES / "normal.md")
+
+        assert "supervised learning" in doc.full_text.lower()
+
+    def test_empty_txt_raises_empty_document(self) -> None:
+        with pytest.raises(UnsupportedDocumentError) as exc_info:
+            extract_text(FIXTURES / "empty.txt")
+
+        assert exc_info.value.reason == "empty_document"
+
+    def test_non_utf8_txt_raises_invalid_file(self) -> None:
+        with pytest.raises(UnsupportedDocumentError) as exc_info:
+            extract_text(FIXTURES / "binary.txt")
+
+        assert exc_info.value.reason == "invalid_file"

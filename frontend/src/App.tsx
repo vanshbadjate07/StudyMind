@@ -82,57 +82,65 @@ function App() {
             hasDocuments={documents.some((doc) => doc.status === "ready")}
           />
         ) : (
-          <main className="mx-auto min-h-0 w-full max-w-3xl flex-1 overflow-y-auto px-6 py-10 lg:px-12">
-            <NotebookHeader
-              notebook={activeNotebook}
-              onSetGoal={async (goalType, description) => {
-                await updateGoal(activeNotebook.id, goalType, description);
-              }}
-              onRename={async (name) => {
-                await renameNotebook(activeNotebook.id, name);
-              }}
-            />
-
-            <div className="mb-10">
-              {documents.some((doc) => doc.status === "ready") ? (
-                <OverviewPanel
-                  notebookId={activeNotebook.id}
-                  watchKey={documents
-                    .map((doc) => `${doc.id}:${doc.status}`)
-                    .sort()
-                    .join(",")}
-                  onOverviewSettled={() => void refreshNotebooks()}
-                />
-              ) : (
-                <HowItWorks />
-              )}
-            </div>
-
-            <section className="mb-10">
-              <h2 className="text-sm font-semibold tracking-tight text-ink">Upload a document</h2>
-              <p className="mt-1 mb-4 text-xs text-ink-muted">
-                PDF only for now. More formats are on the way.
-              </p>
-              <UploadDropzone notebookId={activeNotebook.id} onUploaded={addDocument} />
-            </section>
-
-            <section>
-              <h2 className="text-sm font-semibold tracking-tight text-ink">Your documents</h2>
-              <p className="mt-1 mb-4 text-xs text-ink-muted">
-                Add as many resources as you're studying from — they're combined into one overview
-                above.
-              </p>
-              {documentsError && (
-                <p role="alert" className="mb-4 text-sm text-status-failed">
-                  {documentsError}
-                </p>
-              )}
-              <DocumentList
-                documents={documents}
-                isLoading={documentsLoading}
-                onDeleted={removeDocument}
+          // The scroll container spans the full width so the wheel/trackpad
+          // can scroll from anywhere over this pane, not just when the
+          // cursor happens to be over the centered column — centering
+          // (max-w-3xl mx-auto) lives on the inner wrapper instead. Putting
+          // both on one element (as this used to) meant the scrollable DOM
+          // node itself was only as wide as the centered column, so moving
+          // the mouse into the side margins took it off that element
+          // entirely and scrolling silently stopped working.
+          <main className="min-h-0 flex-1 overflow-y-auto px-6 py-10 lg:px-12">
+            <div className="mx-auto w-full max-w-3xl">
+              <NotebookHeader
+                notebook={activeNotebook}
+                onSetGoal={async (goalType, description) => {
+                  await updateGoal(activeNotebook.id, goalType, description);
+                }}
+                onRename={async (name) => {
+                  await renameNotebook(activeNotebook.id, name);
+                }}
               />
-            </section>
+
+              <div className="mb-10">
+                {documents.some((doc) => doc.status === "ready") ? (
+                  <OverviewPanel
+                    notebookId={activeNotebook.id}
+                    watchKey={documents
+                      .map((doc) => `${doc.id}:${doc.status}`)
+                      .sort()
+                      .join(",")}
+                    onOverviewSettled={() => void refreshNotebooks()}
+                  />
+                ) : (
+                  <HowItWorks />
+                )}
+              </div>
+
+              <section className="mb-10">
+                <h2 className="text-sm font-semibold tracking-tight text-ink">Upload a document</h2>
+                <p className="mt-1 mb-4 text-xs text-ink-muted">PDF, Word, PowerPoint, or plain text.</p>
+                <UploadDropzone notebookId={activeNotebook.id} onUploaded={addDocument} />
+              </section>
+
+              <section>
+                <h2 className="text-sm font-semibold tracking-tight text-ink">Your documents</h2>
+                <p className="mt-1 mb-4 text-xs text-ink-muted">
+                  Add as many resources as you're studying from — they're combined into one overview
+                  above.
+                </p>
+                {documentsError && (
+                  <p role="alert" className="mb-4 text-sm text-status-failed">
+                    {documentsError}
+                  </p>
+                )}
+                <DocumentList
+                  documents={documents}
+                  isLoading={documentsLoading}
+                  onDeleted={removeDocument}
+                />
+              </section>
+            </div>
           </main>
         )}
       </div>

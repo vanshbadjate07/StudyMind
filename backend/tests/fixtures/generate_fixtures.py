@@ -6,7 +6,9 @@ Run manually when fixtures need to change: python tests/fixtures/generate_fixtur
 from pathlib import Path
 
 import fitz  # PyMuPDF
+from docx import Document as DocxDocument
 from PIL import Image
+from pptx import Presentation
 
 FIXTURES_DIR = Path(__file__).parent
 BODY_RECT = fitz.Rect(72, 72, 523, 770)  # 1-inch margins on a standard 595x842 page
@@ -120,6 +122,89 @@ def make_not_a_pdf() -> None:
     (FIXTURES_DIR / "not_a_pdf.pdf").write_text("This is actually a plain text file, not a PDF.")
 
 
+def make_normal_docx() -> None:
+    doc = DocxDocument()
+    doc.add_paragraph("Chapter 1: Introduction to Machine Learning")
+    doc.add_paragraph(
+        "Machine learning is a subfield of artificial intelligence that focuses on building "
+        "systems that learn from data."
+    )
+    doc.add_paragraph("Chapter 2: Neural Networks")
+    doc.add_paragraph(
+        "A neural network consists of layers of interconnected nodes updated during training "
+        "via backpropagation."
+    )
+    doc.save(FIXTURES_DIR / "normal.docx")
+
+
+def make_empty_docx() -> None:
+    DocxDocument().save(FIXTURES_DIR / "empty.docx")
+
+
+def make_corrupted_docx() -> None:
+    # Must still start with the ZIP magic bytes (PK\x03\x04) to clear the
+    # upload route's signature check — the point of this fixture is to fail
+    # later, at python-docx's parse step, not at upload time.
+    doc = DocxDocument()
+    doc.add_paragraph("This will be truncated into garbage.")
+    buffer = FIXTURES_DIR / "_tmp_corrupted.docx"
+    doc.save(buffer)
+    data = buffer.read_bytes()
+    buffer.unlink()
+    (FIXTURES_DIR / "corrupted.docx").write_bytes(data[:20])
+
+
+def make_normal_pptx() -> None:
+    presentation = Presentation()
+    title_layout = presentation.slide_layouts[0]
+    slide1 = presentation.slides.add_slide(title_layout)
+    slide1.shapes.title.text = "Introduction to Machine Learning"
+    slide1.placeholders[1].text = "Supervised vs. unsupervised learning"
+
+    slide2 = presentation.slides.add_slide(title_layout)
+    slide2.shapes.title.text = "Neural Networks"
+    slide2.placeholders[1].text = "Layers, weights, and backpropagation"
+
+    presentation.save(FIXTURES_DIR / "normal.pptx")
+
+
+def make_empty_pptx() -> None:
+    Presentation().save(FIXTURES_DIR / "empty.pptx")
+
+
+def make_corrupted_pptx() -> None:
+    # Same reasoning as make_corrupted_docx: must still start with the ZIP
+    # magic bytes to clear the upload route's signature check.
+    presentation = Presentation()
+    presentation.slides.add_slide(presentation.slide_layouts[0])
+    buffer = FIXTURES_DIR / "_tmp_corrupted.pptx"
+    presentation.save(buffer)
+    data = buffer.read_bytes()
+    buffer.unlink()
+    (FIXTURES_DIR / "corrupted.pptx").write_bytes(data[:20])
+
+
+def make_normal_txt() -> None:
+    (FIXTURES_DIR / "normal.txt").write_text(
+        "Machine learning is a subfield of artificial intelligence focused on building systems "
+        "that learn from data.\n\nSupervised learning uses labeled examples."
+    )
+
+
+def make_empty_txt() -> None:
+    (FIXTURES_DIR / "empty.txt").write_text("   \n\n  ")
+
+
+def make_binary_txt() -> None:
+    (FIXTURES_DIR / "binary.txt").write_bytes(bytes(range(0, 256)))
+
+
+def make_normal_md() -> None:
+    (FIXTURES_DIR / "normal.md").write_text(
+        "# Study Notes\n\n## Machine Learning\n\nSupervised learning uses labeled examples."
+    )
+
+
 if __name__ == "__main__":
     make_normal_pdf()
     make_single_page_pdf()
@@ -129,4 +214,14 @@ if __name__ == "__main__":
     make_password_pdf()
     make_scanned_pdf()
     make_not_a_pdf()
+    make_normal_docx()
+    make_empty_docx()
+    make_corrupted_docx()
+    make_normal_pptx()
+    make_empty_pptx()
+    make_corrupted_pptx()
+    make_normal_txt()
+    make_empty_txt()
+    make_binary_txt()
+    make_normal_md()
     print("Fixtures generated in", FIXTURES_DIR)

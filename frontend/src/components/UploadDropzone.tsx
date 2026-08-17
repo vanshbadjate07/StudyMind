@@ -94,9 +94,9 @@ export function UploadDropzone({ notebookId, onUploaded }: UploadDropzoneProps) 
             ref={inputRef}
             id="document-upload"
             type="file"
-            accept=".pdf"
+            accept=".pdf,.docx,.pptx,.txt,.md"
             multiple
-            aria-label="Upload PDF document"
+            aria-label="Upload a document"
             className="sr-only"
             onChange={handleChange}
             disabled={isBusy}
@@ -108,7 +108,9 @@ export function UploadDropzone({ notebookId, onUploaded }: UploadDropzoneProps) 
             <p className="text-sm font-medium text-ink">
               <span className="text-brand">Click to upload</span> or drag and drop
             </p>
-            <p className="mt-1 text-xs text-ink-muted">PDF, up to 50MB — select multiple to upload at once</p>
+            <p className="mt-1 text-xs text-ink-muted">
+              PDF, Word, PowerPoint, or text, up to 50MB — select multiple to upload at once
+            </p>
           </div>
         </label>
       </div>

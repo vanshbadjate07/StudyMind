@@ -187,6 +187,12 @@ class TestNotebookUpload:
             ("corrupted.pdf", "invalid_pdf"),
             ("password.pdf", "password_protected"),
             ("scanned.pdf", "scanned_or_image_only"),
+            ("empty.docx", "empty_document"),
+            ("corrupted.docx", "invalid_docx"),
+            ("empty.pptx", "empty_document"),
+            ("corrupted.pptx", "invalid_pptx"),
+            ("empty.txt", "empty_document"),
+            ("binary.txt", "invalid_file"),
         ],
     )
     def test_upload_bad_fixture_ends_up_failed_with_reason(
@@ -201,11 +207,22 @@ class TestNotebookUpload:
         assert settled["status"] == "failed"
         assert settled["error_reason"] == expected_reason
 
-    def test_upload_rejects_non_pdf_extension(self, client: TestClient) -> None:
+    @pytest.mark.parametrize("fixture_name", ["normal.docx", "normal.pptx", "normal.txt", "normal.md"])
+    def test_upload_other_supported_formats_end_up_ready(self, client: TestClient, fixture_name: str) -> None:
+        notebook_id = _create_notebook(client)
+
+        response = _upload(client, notebook_id, fixture_name)
+
+        assert response.status_code == 201
+        settled = _poll_until_settled(client, response.json()["id"])
+        assert settled["status"] == "ready"
+        assert settled["chunk_count"] > 0
+
+    def test_upload_rejects_unsupported_extension(self, client: TestClient) -> None:
         notebook_id = _create_notebook(client)
         response = client.post(
             f"/notebooks/{notebook_id}/documents",
-            files={"file": ("notes.txt", b"just some text", "text/plain")},
+            files={"file": ("photo.png", b"just some bytes", "image/png")},
         )
         assert response.status_code == 400
 

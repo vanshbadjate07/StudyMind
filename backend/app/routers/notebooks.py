@@ -27,10 +27,17 @@ from app.services.processing_pipeline import process_document
 
 router = APIRouter(prefix="/notebooks", tags=["notebooks"])
 
-PDF_MAGIC_BYTES = b"%PDF-"
+# .docx/.pptx are zip-based OOXML packages, so they share a signature. .txt
+# and .md have no reliable magic bytes at all — omitted from this map, which
+# means no signature check for them; a corrupt/mislabeled text file just
+# fails later at the UTF-8 decode step in extraction.py instead.
+MAGIC_BYTES_BY_EXTENSION: dict[str, bytes] = {
+    ".pdf": b"%PDF-",
+    ".docx": b"PK\x03\x04",
+    ".pptx": b"PK\x03\x04",
+}
 UPLOAD_CHUNK_SIZE = 1024 * 1024
 MAX_DISPLAY_FILENAME_LENGTH = 255
-STORED_FILENAME = "source.pdf"
 
 
 @router.post("", response_model=NotebookRead, status_code=status.HTTP_201_CREATED)
@@ -104,14 +111,14 @@ async def delete_notebook(notebook_id: str, session: AsyncSession = Depends(get_
     await session.commit()
 
 
-def _sanitize_display_filename(filename: str | None) -> str:
+def _sanitize_display_filename(filename: str | None, extension: str) -> str:
     """Never used to build a filesystem path — only stored/displayed. The
-    on-disk name is always the fixed STORED_FILENAME, so this can't be used
+    on-disk name is always a fixed "source<extension>", so this can't be used
     for path traversal; `Path(...).name` here is purely to avoid showing a
     confusing raw path (e.g. "../../evil.pdf") in the UI."""
     raw = Path(filename or "").name
     cleaned = "".join(ch for ch in raw.strip() if ch.isprintable())
-    return cleaned[:MAX_DISPLAY_FILENAME_LENGTH] or "document.pdf"
+    return cleaned[:MAX_DISPLAY_FILENAME_LENGTH] or f"document{extension}"
 
 
 @router.post("/{notebook_id}/documents", response_model=DocumentRead, status_code=status.HTTP_201_CREATED)
@@ -127,20 +134,23 @@ async def upload_document(
 
     extension = Path(file.filename or "").suffix.lower()
     if extension not in settings.allowed_extensions:
+        supported = ", ".join(settings.allowed_extensions)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported file type '{extension or 'unknown'}'. Only PDF files are supported.",
+            detail=f"Unsupported file type '{extension or 'unknown'}'. Supported types: {supported}.",
         )
 
     document_id = str(uuid.uuid4())
     document_dir = settings.uploads_dir / document_id
     document_dir.mkdir(parents=True, exist_ok=True)
-    # Fixed filename — never derived from user input, so the client-supplied
-    # `file.filename` can never influence the on-disk path (no traversal risk).
-    dest_path = document_dir / STORED_FILENAME
+    # Fixed filename (extension included only because extraction.py dispatches
+    # on it) — never derived from user input beyond the already-validated
+    # `extension`, so the client-supplied `file.filename` can never influence
+    # the on-disk path (no traversal risk).
+    dest_path = document_dir / f"source{extension}"
 
     try:
-        await _save_upload_streaming(file, dest_path)
+        await _save_upload_streaming(file, dest_path, extension)
     except HTTPException:
         shutil.rmtree(document_dir, ignore_errors=True)
         raise
@@ -148,7 +158,7 @@ async def upload_document(
     document = Document(
         id=document_id,
         notebook_id=notebook_id,
-        filename=_sanitize_display_filename(file.filename),
+        filename=_sanitize_display_filename(file.filename, extension),
         file_path=str(dest_path),
         status=DocumentStatus.PENDING,
     )
@@ -161,11 +171,13 @@ async def upload_document(
     return document
 
 
-async def _save_upload_streaming(file: UploadFile, dest_path: Path) -> None:
+async def _save_upload_streaming(file: UploadFile, dest_path: Path, extension: str) -> None:
     """Streams the upload to disk in fixed-size chunks so we never hold a huge
-    file fully in memory, checking the PDF magic bytes on the first chunk and
+    file fully in memory, checking the file's magic bytes (where the format
+    has a reliable one — see MAGIC_BYTES_BY_EXTENSION) on the first chunk and
     the size limit as we go — both rejections happen before the file is fully
     written."""
+    expected_magic = MAGIC_BYTES_BY_EXTENSION.get(extension)
     total_bytes = 0
     first_chunk = True
     with dest_path.open("wb") as out:
@@ -174,10 +186,10 @@ async def _save_upload_streaming(file: UploadFile, dest_path: Path) -> None:
             if not chunk:
                 break
             if first_chunk:
-                if not chunk.startswith(PDF_MAGIC_BYTES):
+                if expected_magic is not None and not chunk.startswith(expected_magic):
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="File does not look like a valid PDF.",
+                        detail=f"File does not look like a valid {extension} file.",
                     )
                 first_chunk = False
             total_bytes += len(chunk)
