@@ -1,8 +1,10 @@
+import { useState } from "react";
+import { ChatView } from "./components/ChatView";
 import { DocumentList } from "./components/DocumentList";
 import { HowItWorks } from "./components/HowItWorks";
 import { NotebookHeader } from "./components/NotebookHeader";
 import { OverviewPanel } from "./components/OverviewPanel";
-import { Sidebar } from "./components/Sidebar";
+import { Sidebar, type WorkspaceSection } from "./components/Sidebar";
 import { UploadDropzone } from "./components/UploadDropzone";
 import { useDocuments } from "./hooks/useDocuments";
 import { useNotebooks } from "./hooks/useNotebooks";
@@ -27,6 +29,7 @@ function App() {
     addDocument,
     removeDocument,
   } = useDocuments(activeId);
+  const [activeSection, setActiveSection] = useState<WorkspaceSection>("documents");
 
   return (
     <div className="flex h-screen overflow-hidden bg-paper">
@@ -34,6 +37,8 @@ function App() {
         notebooks={notebooks}
         activeNotebookId={activeId}
         notebooksLoading={notebooksLoading}
+        activeSection={activeSection}
+        onSelectSection={setActiveSection}
         onSelectNotebook={setActiveId}
         onCreateNotebook={() => void addNotebook()}
         onDeleteNotebook={removeNotebook}
@@ -42,7 +47,7 @@ function App() {
         }}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex items-center gap-2.5 border-b border-line bg-surface px-6 py-4 lg:hidden">
           <Logo />
           <div>
@@ -76,8 +81,10 @@ function App() {
               Create your first notebook
             </button>
           </div>
+        ) : activeSection === "chat" ? (
+          <ChatView notebookId={activeNotebook.id} notebookName={activeNotebook.name} />
         ) : (
-          <main className="mx-auto w-full max-w-3xl px-6 py-10 lg:px-12">
+          <main className="mx-auto min-h-0 w-full max-w-3xl flex-1 overflow-y-auto px-6 py-10 lg:px-12">
             <NotebookHeader
               notebook={activeNotebook}
               onSetGoal={async (goalType, description) => {

@@ -1,8 +1,8 @@
 import enum
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -13,6 +13,11 @@ class DocumentStatus(str, enum.Enum):
     PROCESSING = "processing"
     READY = "ready"
     FAILED = "failed"
+
+
+class ChatRole(str, enum.Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
 
 
 class OverviewStatus(str, enum.Enum):
@@ -55,6 +60,9 @@ class Notebook(Base):
     documents: Mapped[list["Document"]] = relationship(
         back_populates="notebook", cascade="all, delete-orphan"
     )
+    chat_messages: Mapped[list["ChatMessage"]] = relationship(
+        back_populates="notebook", cascade="all, delete-orphan"
+    )
 
 
 class Document(Base):
@@ -85,6 +93,44 @@ class Document(Base):
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
     )
+
+
+class ChatMessage(Base):
+    """One turn of a notebook's chat history — grounded conversational Q&A
+    over the notebook's documents (PRD 6.4). Scoped to the notebook, not a
+    single document, matching the rest of the notebook-as-unit-of-study
+    architecture."""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    notebook_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("notebooks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role: Mapped[ChatRole] = mapped_column(Enum(ChatRole, values_callable=_enum_values), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    # JSON-encoded list of {document_id, filename, page_number} — the sources
+    # an assistant answer was grounded in. Empty/null for user messages and
+    # for assistant answers that weren't grounded in any retrieved material.
+    citations_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Whether this answer was actually grounded in retrieved material (as
+    # opposed to a "not covered in your material" refusal, or an
+    # internet-mode answer drawn from the model's general knowledge).
+    # Always False for user messages.
+    grounded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Whether this answer drew on the model's general knowledge beyond the
+    # retrieved material (only possible when internet mode was on for the
+    # question that produced it). Always False for user messages.
+    used_internet: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Python-side default (not server_default=func.now(), which via SQLite's
+    # CURRENT_TIMESTAMP only has second resolution) — a single chat turn
+    # writes two rows (user then assistant) and history is always sorted by
+    # this column, so sub-second precision is what keeps rapid successive
+    # messages in correct order rather than relying on SQLite's insertion
+    # order as an undocumented tiebreak.
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    notebook: Mapped["Notebook"] = relationship(back_populates="chat_messages")
 
 
 class Chunk(Base):

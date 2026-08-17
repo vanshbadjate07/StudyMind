@@ -36,6 +36,19 @@ class Settings(BaseSettings):
     overview_max_section_chars: int = 12000
     overview_max_sections: int = 20
 
+    chat_model: str = "qwen2.5:3b"
+    chat_llm_timeout_seconds: float = 120.0
+    chat_context_tokens: int = 8192
+    chat_top_k: int = 6
+    # Chroma L2 distance (embeddings are normalized, so this ranges roughly
+    # 0-4). Empirically, relevant matches against this project's embedding
+    # model land well under 1.0 and irrelevant ones well over 1.7 — this
+    # threshold sits with margin on both sides of that gap.
+    chat_relevance_distance_threshold: float = 1.3
+    # How many prior messages (user + assistant combined) to include as
+    # conversation context for follow-up questions.
+    chat_history_messages: int = 8
+
 
 settings = Settings()
 settings.uploads_dir.mkdir(parents=True, exist_ok=True)

@@ -3,8 +3,10 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 import app.routers.notebooks as notebooks_module
+from app.models import ChatMessage
 from app.services.vector_store import get_vector_store
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -124,6 +126,25 @@ class TestNotebookDelete:
         assert get_vector_store().count_for_document(document_id) == 0
         # Not just the DB rows and vectors — the on-disk file must be gone too.
         assert not (tmp_path / "uploads" / document_id).exists()
+
+    async def test_delete_notebook_cascades_chat_messages(self, client: TestClient, monkeypatch) -> None:
+        class _FakeTextClient:
+            async def generate_text(self, prompt: str, *, temperature: float = 0.3) -> str:
+                return "An answer."
+
+        monkeypatch.setattr("app.services.chat.OllamaClient", lambda *a, **k: _FakeTextClient())
+        notebook_id = _create_notebook(client)
+        client.post(
+            f"/notebooks/{notebook_id}/chat/messages",
+            json={"question": "Anything here?", "internet_mode": False},
+        )
+
+        delete_response = client.delete(f"/notebooks/{notebook_id}")
+
+        assert delete_response.status_code == 204
+        async with client.test_session_factory() as session:
+            result = await session.execute(select(ChatMessage))
+            assert result.scalars().all() == []
 
     def test_delete_notebook_with_no_documents(self, client: TestClient) -> None:
         notebook_id = _create_notebook(client)

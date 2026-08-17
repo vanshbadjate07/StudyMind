@@ -46,6 +46,24 @@ export interface NotebookRecord {
   updated_at: string;
 }
 
+export type ChatRole = "user" | "assistant";
+
+export interface ChatCitation {
+  document_id: string;
+  filename: string;
+  page_number: number | null;
+}
+
+export interface ChatMessageRecord {
+  id: string;
+  role: ChatRole;
+  content: string;
+  citations: ChatCitation[];
+  grounded: boolean;
+  used_internet: boolean;
+  created_at: string;
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 export class ApiError extends Error {
@@ -153,6 +171,25 @@ export async function regenerateNotebookOverview(notebookId: string): Promise<Ov
     method: "POST",
   });
   return handleResponse<OverviewRecord>(response);
+}
+
+export async function listChatMessages(notebookId: string): Promise<ChatMessageRecord[]> {
+  const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/chat/messages`);
+  const data = await handleResponse<{ messages: ChatMessageRecord[] }>(response);
+  return data.messages;
+}
+
+export async function askChatQuestion(
+  notebookId: string,
+  question: string,
+  internetMode: boolean,
+): Promise<ChatMessageRecord> {
+  const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/chat/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, internet_mode: internetMode }),
+  });
+  return handleResponse<ChatMessageRecord>(response);
 }
 
 /** Uses XMLHttpRequest instead of fetch so we can report upload progress —

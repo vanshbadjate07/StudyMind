@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import DocumentStatus, GoalType, Overview, OverviewStatus
+from app.models import ChatMessage, ChatRole, DocumentStatus, GoalType, Overview, OverviewStatus
 
 
 class DocumentRead(BaseModel):
@@ -109,3 +109,41 @@ class OverviewRead(BaseModel):
             created_at=overview.created_at,
             updated_at=overview.updated_at,
         )
+
+
+class ChatCitation(BaseModel):
+    document_id: str
+    filename: str
+    page_number: int | None
+
+
+class ChatAskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    internet_mode: bool = False
+
+
+class ChatMessageRead(BaseModel):
+    id: str
+    role: ChatRole
+    content: str
+    citations: list[ChatCitation]
+    grounded: bool
+    used_internet: bool
+    created_at: datetime
+
+    @classmethod
+    def from_model(cls, message: ChatMessage) -> "ChatMessageRead":
+        raw_citations = json.loads(message.citations_json) if message.citations_json else []
+        return cls(
+            id=message.id,
+            role=message.role,
+            content=message.content,
+            citations=[ChatCitation(**citation) for citation in raw_citations],
+            grounded=message.grounded,
+            used_internet=message.used_internet,
+            created_at=message.created_at,
+        )
+
+
+class ChatMessageList(BaseModel):
+    messages: list[ChatMessageRead]

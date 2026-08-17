@@ -4,17 +4,19 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { InfoDialog } from "./InfoDialog";
 import { PrivacyContent, TermsContent } from "./LegalContent";
 
+export type WorkspaceSection = "documents" | "chat";
+
 interface NavItem {
+  section: WorkspaceSection | "quiz" | "slides" | "interview";
   label: string;
   icon: ReactNode;
-  active?: boolean;
   soon?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
   {
+    section: "documents",
     label: "Documents",
-    active: true,
     icon: (
       <path
         strokeLinecap="round"
@@ -24,11 +26,12 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    section: "chat",
     label: "Chat",
-    soon: true,
     icon: <path strokeLinecap="round" strokeLinejoin="round" d="M4 5h16v10H8l-4 4V5Z" />,
   },
   {
+    section: "quiz",
     label: "Quiz",
     soon: true,
     icon: (
@@ -40,6 +43,7 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    section: "slides",
     label: "Slides",
     soon: true,
     icon: (
@@ -51,6 +55,7 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    section: "interview",
     label: "Interview",
     soon: true,
     icon: (
@@ -67,6 +72,8 @@ interface SidebarProps {
   notebooks: NotebookRecord[];
   activeNotebookId: string | null;
   notebooksLoading: boolean;
+  activeSection: WorkspaceSection;
+  onSelectSection: (section: WorkspaceSection) => void;
   onSelectNotebook: (id: string) => void;
   onCreateNotebook: () => void;
   onDeleteNotebook: (id: string) => Promise<void>;
@@ -77,6 +84,8 @@ export function Sidebar({
   notebooks,
   activeNotebookId,
   notebooksLoading,
+  activeSection,
+  onSelectSection,
   onSelectNotebook,
   onCreateNotebook,
   onDeleteNotebook,
@@ -232,16 +241,10 @@ export function Sidebar({
           Workspace
         </p>
         <ul className="space-y-1">
-          {NAV_ITEMS.map((item) => (
-            <li key={item.label}>
-              <div
-                aria-current={item.active ? "page" : undefined}
-                className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  item.active
-                    ? "bg-brand-subtle text-brand-ink"
-                    : "text-ink-muted hover:bg-paper hover:text-ink"
-                }`}
-              >
+          {NAV_ITEMS.map((item) => {
+            const isActive = !item.soon && item.section === activeSection;
+            const content = (
+              <>
                 <span className="flex items-center gap-2.5">
                   <svg
                     aria-hidden="true"
@@ -260,9 +263,28 @@ export function Sidebar({
                     Soon
                   </span>
                 )}
-              </div>
-            </li>
-          ))}
+              </>
+            );
+            const className = `flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              isActive ? "bg-brand-subtle text-brand-ink" : "text-ink-muted hover:bg-paper hover:text-ink"
+            }`;
+            return (
+              <li key={item.label}>
+                {item.soon ? (
+                  <div className={className}>{content}</div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onSelectSection(item.section as WorkspaceSection)}
+                    aria-current={isActive ? "page" : undefined}
+                    className={className}
+                  >
+                    {content}
+                  </button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       </nav>
 

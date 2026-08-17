@@ -11,7 +11,7 @@ from app.migrations import (
     migrate_overview_short_summary_column,
     migrate_overview_to_notebook_scope,
 )
-from app.routers import documents, notebooks
+from app.routers import chat, documents, notebooks
 from app.services.processing_pipeline import reconcile_interrupted_documents
 
 
@@ -42,6 +42,7 @@ app.add_middleware(
 
 app.include_router(notebooks.router)
 app.include_router(documents.router)
+app.include_router(chat.router)
 
 
 @app.get("/health")

@@ -19,6 +19,9 @@ class _StubOllamaClient:
     async def generate_json(self, prompt: str, *, temperature: float = 0.2) -> str:
         raise OllamaUnreachableError("stub: Ollama not used in this test")
 
+    async def generate_text(self, prompt: str, *, temperature: float = 0.3) -> str:
+        raise OllamaUnreachableError("stub: Ollama not used in this test")
+
 
 @pytest.fixture(autouse=True)
 def _stub_ollama_by_default(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> None:
@@ -26,6 +29,10 @@ def _stub_ollama_by_default(monkeypatch: pytest.MonkeyPatch, request: pytest.Fix
         return
     monkeypatch.setattr(
         "app.services.overview_generation.OllamaClient",
+        lambda *args, **kwargs: _StubOllamaClient(),
+    )
+    monkeypatch.setattr(
+        "app.services.chat.OllamaClient",
         lambda *args, **kwargs: _StubOllamaClient(),
     )
 
