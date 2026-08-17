@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import Markdown from "react-markdown";
 import { useChat } from "../hooks/useChat";
 import type { ChatMessageRecord } from "../lib/api";
 
@@ -12,6 +13,7 @@ export function ChatView({ notebookId, notebookName }: ChatViewProps) {
   const [draft, setDraft] = useState("");
   const [internetMode, setInternetMode] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
@@ -23,6 +25,11 @@ export function ChatView({ notebookId, notebookName }: ChatViewProps) {
     const question = draft;
     setDraft("");
     void sendMessage(question, internetMode);
+  };
+
+  const handleEdit = (content: string) => {
+    setDraft(content);
+    textareaRef.current?.focus();
   };
 
   return (
@@ -52,7 +59,7 @@ export function ChatView({ notebookId, notebookName }: ChatViewProps) {
         ) : (
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
             {messages.map((message) => (
-              <ChatBubble key={message.id} message={message} />
+              <ChatBubble key={message.id} message={message} onEdit={handleEdit} />
             ))}
           </div>
         )}
@@ -68,6 +75,7 @@ export function ChatView({ notebookId, notebookName }: ChatViewProps) {
           )}
           <div className="flex items-end gap-2">
             <textarea
+              ref={textareaRef}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
@@ -105,16 +113,36 @@ export function ChatView({ notebookId, notebookName }: ChatViewProps) {
   );
 }
 
-function ChatBubble({ message }: { message: ChatMessageRecord }) {
+function ChatBubble({
+  message,
+  onEdit,
+}: {
+  message: ChatMessageRecord;
+  onEdit: (content: string) => void;
+}) {
   const isUser = message.role === "user";
   return (
-    <div className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}>
-      <div
-        className={`max-w-[85%] rounded-xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
-          isUser ? "bg-brand-subtle text-brand-ink" : "border border-line bg-surface text-ink"
-        }`}
-      >
-        {message.content}
+    <div className={`group flex flex-col ${isUser ? "items-end" : "items-start"}`}>
+      <div className={`flex items-center gap-1.5 ${isUser ? "flex-row-reverse" : ""}`}>
+        <div
+          className={`max-w-[85%] rounded-xl px-4 py-2.5 text-sm leading-relaxed ${
+            isUser
+              ? "whitespace-pre-wrap bg-brand-subtle text-brand-ink"
+              : "border border-line bg-surface text-ink"
+          }`}
+        >
+          {isUser ? message.content : <MarkdownContent content={message.content} />}
+        </div>
+        {isUser && (
+          <button
+            type="button"
+            onClick={() => onEdit(message.content)}
+            aria-label="Edit this question"
+            className="shrink-0 rounded-lg p-1.5 text-ink-faint opacity-0 transition-opacity hover:bg-paper hover:text-ink group-hover:opacity-100 focus-visible:opacity-100"
+          >
+            <EditIcon />
+          </button>
+        )}
       </div>
       {!isUser && message.used_internet && (
         <span className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-line-strong px-2 py-0.5 text-[11px] font-medium text-ink-muted">
@@ -135,6 +163,59 @@ function ChatBubble({ message }: { message: ChatMessageRecord }) {
         </div>
       )}
     </div>
+  );
+}
+
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <div className="space-y-2 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+      <Markdown
+        components={{
+          p: ({ children }) => <p className="leading-relaxed">{children}</p>,
+          strong: ({ children }) => <strong className="font-semibold text-ink">{children}</strong>,
+          em: ({ children }) => <em className="italic">{children}</em>,
+          ul: ({ children }) => <ul className="list-disc space-y-1 pl-5">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5">{children}</ol>,
+          li: ({ children }) => <li>{children}</li>,
+          a: ({ children, href }) => (
+            <a href={href} target="_blank" rel="noreferrer" className="text-brand underline">
+              {children}
+            </a>
+          ),
+          h1: ({ children }) => <p className="font-semibold text-ink">{children}</p>,
+          h2: ({ children }) => <p className="font-semibold text-ink">{children}</p>,
+          h3: ({ children }) => <p className="font-semibold text-ink">{children}</p>,
+          blockquote: ({ children }) => (
+            <blockquote className="border-l-2 border-line pl-3 text-ink-muted italic">
+              {children}
+            </blockquote>
+          ),
+          code: ({ children }) => (
+            <code className="rounded bg-paper px-1 py-0.5 font-mono text-xs">{children}</code>
+          ),
+          pre: ({ children }) => (
+            <pre className="overflow-x-auto rounded-lg bg-paper p-3 font-mono text-xs">{children}</pre>
+          ),
+        }}
+      >
+        {content}
+      </Markdown>
+    </div>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      className="h-3.5 w-3.5"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="m16.5 4.5 3 3L9 18l-4 1 1-4Z" />
+    </svg>
   );
 }
 

@@ -120,4 +120,42 @@ describe("ChatView", () => {
     expect(await screen.findByText("What is X?")).toBeInTheDocument();
     expect(await screen.findByRole("alert")).toHaveTextContent(/ai service unreachable/i);
   });
+
+  it("renders assistant markdown (bold, lists, code) instead of raw asterisks and dashes", async () => {
+    vi.spyOn(api, "listChatMessages").mockResolvedValue([
+      makeMessage({
+        content: "**MongoDB** is a NoSQL database.\n\n- Uses `mongod`\n- Uses `mongosh`",
+      }),
+    ]);
+
+    render(<ChatView notebookId="nb-1" notebookName="ML Notes" />);
+
+    expect(await screen.findByText("MongoDB")).toBeInTheDocument();
+    expect(screen.getByText("MongoDB").tagName).toBe("STRONG");
+    expect(screen.getByText("mongod").tagName).toBe("CODE");
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    // Raw markdown syntax must not leak through as literal text.
+    expect(screen.queryByText(/\*\*MongoDB\*\*/)).not.toBeInTheDocument();
+  });
+
+  it("puts a past question back in the composer for editing instead of rewriting history", async () => {
+    // There's no backend support for editing/truncating history in place, so
+    // "edit" repopulates the composer with the original question — the user
+    // tweaks it and resends as a new turn, leaving the original intact.
+    vi.spyOn(api, "listChatMessages").mockResolvedValue([
+      makeMessage({ id: "m1", role: "user", content: "What is MongoDB?" }),
+      makeMessage({ id: "m2", role: "assistant", content: "A NoSQL database." }),
+    ]);
+    const user = userEvent.setup();
+
+    render(<ChatView notebookId="nb-1" notebookName="ML Notes" />);
+    await screen.findByText("What is MongoDB?");
+
+    await user.click(screen.getByRole("button", { name: /edit this question/i }));
+
+    expect(screen.getByLabelText(/your question/i)).toHaveValue("What is MongoDB?");
+    // The original message is untouched — still visible in history (once in
+    // the chat bubble, once as the composer's now-editable value).
+    expect(screen.getAllByText("What is MongoDB?")).toHaveLength(2);
+  });
 });
