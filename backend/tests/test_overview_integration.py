@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.config import settings
 from app.db import Base
-from app.models import Chunk, Document, Overview, OverviewStatus
+from app.models import Chunk, Document, DocumentStatus, Notebook, Overview, OverviewStatus
 from app.services.overview_generation import generate_overview
 
 FIXTURE_TEXT_LATER_PAGES = "gradient descent"  # only appears deep in the fixture text
@@ -48,7 +48,15 @@ async def session() -> AsyncSession:
 async def test_real_ollama_produces_a_well_formed_overview_covering_the_whole_document(
     session: AsyncSession,
 ) -> None:
-    doc = Document(filename="ml-notes.pdf", file_path="/tmp/ml-notes.pdf")
+    notebook = Notebook(name="ML Notes")
+    session.add(notebook)
+    await session.flush()
+    doc = Document(
+        notebook_id=notebook.id,
+        filename="ml-notes.pdf",
+        file_path="/tmp/ml-notes.pdf",
+        status=DocumentStatus.READY,
+    )
     session.add(doc)
     await session.commit()
     await session.refresh(doc)
@@ -70,9 +78,9 @@ async def test_real_ollama_produces_a_well_formed_overview_covering_the_whole_do
     session.add(Chunk(document_id=document_id, chunk_index=1, text=late_section, page_number=10))
     await session.commit()
 
-    await generate_overview(document_id, session)
+    await generate_overview(notebook.id, session)
 
-    result = await session.execute(select(Overview).where(Overview.document_id == document_id))
+    result = await session.execute(select(Overview).where(Overview.notebook_id == notebook.id))
     row = result.scalar_one_or_none()
     assert row is not None
     assert row.status == OverviewStatus.READY, row.error_detail

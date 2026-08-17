@@ -1,6 +1,7 @@
 import { DocumentList } from "./components/DocumentList";
 import { HowItWorks } from "./components/HowItWorks";
 import { NotebookHeader } from "./components/NotebookHeader";
+import { OverviewPanel } from "./components/OverviewPanel";
 import { Sidebar } from "./components/Sidebar";
 import { UploadDropzone } from "./components/UploadDropzone";
 import { useDocuments } from "./hooks/useDocuments";
@@ -36,6 +37,9 @@ function App() {
         onSelectNotebook={setActiveId}
         onCreateNotebook={() => void addNotebook()}
         onDeleteNotebook={removeNotebook}
+        onRenameNotebook={async (id, name) => {
+          await renameNotebook(id, name);
+        }}
       />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
@@ -73,36 +77,38 @@ function App() {
             </button>
           </div>
         ) : (
-          <>
-            <main className="mx-auto w-full max-w-3xl px-6 py-10 lg:px-12">
-              <NotebookHeader
-                notebook={activeNotebook}
-                onSetGoal={async (goalType, description) => {
-                  await updateGoal(activeNotebook.id, goalType, description);
-                }}
-                onRename={async (name) => {
-                  await renameNotebook(activeNotebook.id, name);
-                }}
-              />
+          <main className="mx-auto w-full max-w-3xl px-6 py-10 lg:px-12">
+            <NotebookHeader
+              notebook={activeNotebook}
+              onSetGoal={async (goalType, description) => {
+                await updateGoal(activeNotebook.id, goalType, description);
+              }}
+              onRename={async (name) => {
+                await renameNotebook(activeNotebook.id, name);
+              }}
+            />
 
-              <div className="mb-10">
+            <div className="mb-10">
+              {documents.some((doc) => doc.status === "ready") ? (
+                <OverviewPanel notebookId={activeNotebook.id} />
+              ) : (
                 <HowItWorks />
-              </div>
+              )}
+            </div>
 
-              <section>
-                <h2 className="text-sm font-semibold tracking-tight text-ink">Upload a document</h2>
-                <p className="mt-1 mb-4 text-xs text-ink-muted">
-                  PDF only for now. More formats are on the way.
-                </p>
-                <UploadDropzone notebookId={activeNotebook.id} onUploaded={addDocument} />
-              </section>
-            </main>
+            <section className="mb-10">
+              <h2 className="text-sm font-semibold tracking-tight text-ink">Upload a document</h2>
+              <p className="mt-1 mb-4 text-xs text-ink-muted">
+                PDF only for now. More formats are on the way.
+              </p>
+              <UploadDropzone notebookId={activeNotebook.id} onUploaded={addDocument} />
+            </section>
 
-            <section className="mx-auto w-full max-w-5xl px-6 pb-10 lg:px-12">
+            <section>
               <h2 className="text-sm font-semibold tracking-tight text-ink">Your documents</h2>
               <p className="mt-1 mb-4 text-xs text-ink-muted">
-                Select a document to see its overview. Add as many resources as you're studying
-                from.
+                Add as many resources as you're studying from — they're combined into one overview
+                above.
               </p>
               {documentsError && (
                 <p role="alert" className="mb-4 text-sm text-status-failed">
@@ -115,7 +121,7 @@ function App() {
                 onDeleted={removeDocument}
               />
             </section>
-          </>
+          </main>
         )}
       </div>
     </div>

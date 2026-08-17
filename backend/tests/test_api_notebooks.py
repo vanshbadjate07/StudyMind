@@ -39,7 +39,7 @@ class TestNotebookCrud:
         response = client.post("/notebooks", json={})
         assert response.status_code == 201
         body = response.json()
-        assert body["name"] == "Untitled Notebook"
+        assert body["name"] == "Untitled"
         assert body["goal_type"] is None
 
     def test_create_notebook_with_a_name(self, client: TestClient) -> None:

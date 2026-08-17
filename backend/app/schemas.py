@@ -75,9 +75,15 @@ class SectionSummary(BaseModel):
     summary: str
 
 
+class TitleSuggestion(BaseModel):
+    """Validates the LLM's notebook auto-titling output."""
+
+    title: str = Field(min_length=1, max_length=80)
+
+
 class OverviewRead(BaseModel):
     id: str
-    document_id: str
+    notebook_id: str
     status: OverviewStatus
     topics: list[TopicSummary]
     estimated_minutes: int | None
@@ -91,7 +97,7 @@ class OverviewRead(BaseModel):
         raw_topics = json.loads(overview.topics_json) if overview.topics_json else []
         return cls(
             id=overview.id,
-            document_id=overview.document_id,
+            notebook_id=overview.notebook_id,
             status=overview.status,
             topics=[TopicSummary(**topic) for topic in raw_topics],
             estimated_minutes=overview.estimated_minutes,

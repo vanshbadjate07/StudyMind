@@ -48,3 +48,90 @@ async def migrate_documents_notebook_column() -> None:
             {"notebook_id": notebook.id},
         )
         await session.commit()
+
+
+async def _table_exists(conn, name: str) -> bool:
+    result = await conn.execute(
+        text("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :name"), {"name": name}
+    )
+    return result.first() is not None
+
+
+async def migrate_overview_to_notebook_scope() -> None:
+    """One-time schema patch: `overviews` moves from one row per document to
+    one row per notebook (a notebook's overview is now synthesized across all
+    of its documents, not generated separately for each). An overview is
+    derived/regenerable content, not source material, so there's nothing to
+    backfill — every notebook just gets a fresh combined overview the next
+    time one of its documents is ready.
+
+    The old `document_id` column was NOT NULL and UNIQUE, and SQLite refuses
+    to `DROP COLUMN` a column carrying either constraint — so this can't be a
+    simple ALTER TABLE like migrate_documents_notebook_column. Instead the
+    table is rebuilt: the old table is renamed aside, a fresh `overviews`
+    table is created in the new shape, and the old one is dropped (discarding
+    its rows, per the plan above).
+
+    Each step is independently idempotent so a crash at any point leaves the
+    database in a state this function can still recover on the next startup:
+    - rename old -> `overviews_legacy` (skipped if that name already exists,
+      i.e. a previous run already got this far)
+    - create the new `overviews` and its unique index (each skipped if it
+      already exists, checked separately so a crash between the two still
+      recovers correctly)
+    - drop `overviews_legacy` (a no-op `DROP TABLE IF EXISTS` either way)
+    A DB already in the final shape (fresh install via `create_all`, or an
+    already-migrated one) short-circuits immediately.
+
+    The table is deliberately created to match what `create_all()` generates
+    from the `Overview` model exactly — same column defs, same
+    `CREATE UNIQUE INDEX ix_overviews_notebook_id` (as its own statement,
+    not an inline `UNIQUE` column constraint) — so a migrated database and a
+    fresh-install database end up byte-for-byte equivalent in schema, not
+    just equivalent in behavior. Verified by diffing this against
+    `Base.metadata.create_all()`'s actual output.
+
+    Must run after `init_db()`. No ordering dependency on
+    `migrate_documents_notebook_column()` — they touch disjoint tables."""
+    async with db.engine.begin() as conn:
+        result = await conn.execute(text("PRAGMA table_info(overviews)"))
+        columns = {row[1] for row in result.fetchall()}
+        already_final_shape = "notebook_id" in columns and "document_id" not in columns
+        legacy_table_exists = await _table_exists(conn, "overviews_legacy")
+
+    if already_final_shape and not legacy_table_exists:
+        return
+
+    async with db.engine.begin() as conn:
+        if not legacy_table_exists:
+            await conn.execute(text("ALTER TABLE overviews RENAME TO overviews_legacy"))
+
+    async with db.engine.begin() as conn:
+        if not await _table_exists(conn, "overviews"):
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE overviews (
+                        id VARCHAR(36) NOT NULL,
+                        notebook_id VARCHAR(36) NOT NULL,
+                        status VARCHAR(10) NOT NULL,
+                        topics_json TEXT,
+                        estimated_minutes INTEGER,
+                        error_reason VARCHAR(64),
+                        error_detail TEXT,
+                        created_at DATETIME DEFAULT (CURRENT_TIMESTAMP) NOT NULL,
+                        updated_at DATETIME DEFAULT (CURRENT_TIMESTAMP) NOT NULL,
+                        PRIMARY KEY (id),
+                        FOREIGN KEY(notebook_id) REFERENCES notebooks (id) ON DELETE CASCADE
+                    )
+                    """
+                )
+            )
+
+    async with db.engine.begin() as conn:
+        await conn.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS ix_overviews_notebook_id ON overviews (notebook_id)")
+        )
+
+    async with db.engine.begin() as conn:
+        await conn.execute(text("DROP TABLE IF EXISTS overviews_legacy"))

@@ -4,31 +4,15 @@ import { DocumentStatusBadge } from "./DocumentStatusBadge";
 interface DocumentRowProps {
   document: DocumentRecord;
   summary: string | null;
-  selected: boolean;
-  onSelect: () => void;
   onDeleteClick: () => void;
 }
 
-export function DocumentRow({ document, summary, selected, onSelect, onDeleteClick }: DocumentRowProps) {
+export function DocumentRow({ document, summary, onDeleteClick }: DocumentRowProps) {
   const isFailed = document.status === "failed";
 
   return (
     <li>
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={onSelect}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onSelect();
-          }
-        }}
-        aria-pressed={selected}
-        className={`flex cursor-pointer items-start gap-3 p-3 transition-colors ${
-          selected ? "bg-brand-subtle" : "hover:bg-paper"
-        }`}
-      >
+      <div className="flex items-start gap-3 p-3">
         <DocumentIcon failed={isFailed} />
         <div className="min-w-0 flex-1 pt-0.5">
           <p className="truncate text-sm font-medium text-ink">{document.filename}</p>
@@ -42,10 +26,7 @@ export function DocumentRow({ document, summary, selected, onSelect, onDeleteCli
           <DocumentStatusBadge status={document.status} />
           <button
             type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onDeleteClick();
-            }}
+            onClick={onDeleteClick}
             aria-label={`Delete ${document.filename}`}
             className="rounded-lg p-1.5 text-ink-faint transition-colors hover:bg-surface hover:text-status-failed"
           >

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { NotebookRecord } from "../lib/api";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { InfoDialog } from "./InfoDialog";
@@ -70,6 +70,7 @@ interface SidebarProps {
   onSelectNotebook: (id: string) => void;
   onCreateNotebook: () => void;
   onDeleteNotebook: (id: string) => Promise<void>;
+  onRenameNotebook: (id: string, name: string) => Promise<void>;
 }
 
 export function Sidebar({
@@ -79,11 +80,15 @@ export function Sidebar({
   onSelectNotebook,
   onCreateNotebook,
   onDeleteNotebook,
+  onRenameNotebook,
 }: SidebarProps) {
   const [openDialog, setOpenDialog] = useState<"terms" | "privacy" | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [draftName, setDraftName] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
 
   const pendingDeleteNotebook = notebooks.find((n) => n.id === pendingDeleteId) ?? null;
 
@@ -98,6 +103,26 @@ export function Sidebar({
       setDeleteError("Couldn't delete this notebook.");
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (renamingId) {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }
+  }, [renamingId]);
+
+  const startRenaming = (notebook: NotebookRecord) => {
+    setDraftName(notebook.name);
+    setRenamingId(notebook.id);
+  };
+
+  const commitRename = async (notebook: NotebookRecord) => {
+    const trimmed = draftName.trim();
+    setRenamingId(null);
+    if (trimmed && trimmed !== notebook.name) {
+      await onRenameNotebook(notebook.id, trimmed);
     }
   };
 
@@ -134,33 +159,65 @@ export function Sidebar({
           <p className="px-2 text-xs text-ink-muted">No notebooks yet.</p>
         ) : (
           <ul className="max-h-40 space-y-0.5 overflow-y-auto">
-            {notebooks.map((notebook) => (
-              <li key={notebook.id} className="group flex items-center">
-                <button
-                  type="button"
-                  onClick={() => onSelectNotebook(notebook.id)}
-                  aria-current={notebook.id === activeNotebookId ? "true" : undefined}
-                  className={`block min-w-0 flex-1 truncate rounded-lg px-3 py-1.5 text-left text-sm font-medium transition-colors ${
-                    notebook.id === activeNotebookId
-                      ? "bg-brand-subtle text-brand-ink"
-                      : "text-ink-muted hover:bg-paper hover:text-ink"
-                  }`}
-                >
-                  {notebook.name}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDeleteError(null);
-                    setPendingDeleteId(notebook.id);
-                  }}
-                  aria-label={`Delete ${notebook.name}`}
-                  className="shrink-0 rounded-lg p-1.5 text-ink-faint opacity-0 transition-colors hover:bg-paper hover:text-status-failed group-hover:opacity-100 focus-visible:opacity-100"
-                >
-                  <TrashIcon />
-                </button>
-              </li>
-            ))}
+            {notebooks.map((notebook) =>
+              renamingId === notebook.id ? (
+                <li key={notebook.id} className="flex items-center px-1">
+                  <input
+                    ref={renameInputRef}
+                    value={draftName}
+                    onChange={(event) => setDraftName(event.target.value)}
+                    onBlur={() => void commitRename(notebook)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void commitRename(notebook);
+                      } else if (event.key === "Escape") {
+                        event.preventDefault();
+                        setRenamingId(null);
+                      }
+                    }}
+                    aria-label="Notebook name"
+                    className="min-w-0 flex-1 rounded-lg border border-brand bg-paper px-3 py-1.5 text-sm font-medium text-ink focus:outline-none"
+                  />
+                </li>
+              ) : (
+                <li key={notebook.id} className="group flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => onSelectNotebook(notebook.id)}
+                    onDoubleClick={() => startRenaming(notebook)}
+                    aria-current={notebook.id === activeNotebookId ? "true" : undefined}
+                    title="Double-click to rename"
+                    className={`block min-w-0 flex-1 truncate rounded-lg px-3 py-1.5 text-left text-sm font-medium transition-colors ${
+                      notebook.id === activeNotebookId
+                        ? "bg-brand-subtle text-brand-ink"
+                        : "text-ink-muted hover:bg-paper hover:text-ink"
+                    }`}
+                  >
+                    {notebook.name}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => startRenaming(notebook)}
+                    aria-label={`Rename ${notebook.name}`}
+                    className="shrink-0 rounded-lg p-1.5 text-ink-faint opacity-0 transition-colors hover:bg-paper hover:text-ink group-hover:opacity-100 focus-visible:opacity-100"
+                  >
+                    <PencilIcon />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeleteError(null);
+                      setPendingDeleteId(notebook.id);
+                    }}
+                    aria-label={`Delete ${notebook.name}`}
+                    className="shrink-0 rounded-lg p-1.5 text-ink-faint opacity-0 transition-colors hover:bg-paper hover:text-status-failed group-hover:opacity-100 focus-visible:opacity-100"
+                  >
+                    <TrashIcon />
+                  </button>
+                </li>
+              ),
+            )}
           </ul>
         )}
         {deleteError && (
@@ -265,6 +322,25 @@ function Logo() {
         fillOpacity="0.92"
       />
       <path d="M16 9h5.5c.83 0 1.5.67 1.5 1.5V22h-7V9Z" fill="#FAF8F5" fillOpacity="0.6" />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      className="h-3.5 w-3.5"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m16.5 4.5 3 3L9 18l-4 1 1-4Z"
+      />
     </svg>
   );
 }

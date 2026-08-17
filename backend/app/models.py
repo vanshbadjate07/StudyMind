@@ -42,7 +42,7 @@ class Notebook(Base):
     __tablename__ = "notebooks"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    name: Mapped[str] = mapped_column(String(255), nullable=False, default="Untitled Notebook")
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="Untitled")
     goal_type: Mapped[GoalType | None] = mapped_column(
         Enum(GoalType, values_callable=_enum_values), nullable=True
     )
@@ -102,12 +102,18 @@ class Chunk(Base):
 
 
 class Overview(Base):
+    """One combined overview per notebook, synthesized across every ready
+    document it contains — not one overview per document. A notebook is the
+    unit of study (e.g. "Learning Python" made of several PDFs), so this
+    mirrors how Google NotebookLM treats a notebook's sources as a single
+    body of material."""
+
     __tablename__ = "overviews"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    document_id: Mapped[str] = mapped_column(
+    notebook_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("documents.id", ondelete="CASCADE"),
+        ForeignKey("notebooks.id", ondelete="CASCADE"),
         nullable=False,
         unique=True,
         index=True,

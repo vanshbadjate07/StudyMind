@@ -32,7 +32,7 @@ async def test_notebook_defaults_to_untitled_name_and_no_goal(session: AsyncSess
     await session.commit()
     await session.refresh(notebook)
 
-    assert notebook.name == "Untitled Notebook"
+    assert notebook.name == "Untitled"
     assert notebook.goal_type is None
     assert notebook.goal_description is None
 

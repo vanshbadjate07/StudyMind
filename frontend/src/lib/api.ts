@@ -24,7 +24,7 @@ export interface TopicSummary {
 
 export interface OverviewRecord {
   id: string;
-  document_id: string;
+  notebook_id: string;
   status: OverviewStatus;
   topics: TopicSummary[];
   estimated_minutes: number | null;
@@ -134,18 +134,21 @@ export async function deleteDocument(id: string): Promise<void> {
   await handleResponse<void>(response);
 }
 
-/** Returns null if the overview hasn't started yet (e.g. document isn't ready) — the
- * backend returns 404 for that case, which isn't an error here, just a "not yet" state. */
-export async function getOverview(documentId: string): Promise<OverviewRecord | null> {
-  const response = await fetch(`${API_BASE_URL}/documents/${documentId}/overview`);
+/** One combined overview per notebook (synthesized across all of its ready
+ * documents), not one per document — matches how the notebook is treated as
+ * a single body of study material everywhere else. Returns null if the
+ * overview hasn't started yet (e.g. no document is ready) — the backend
+ * returns 404 for that case, which isn't an error here, just a "not yet" state. */
+export async function getNotebookOverview(notebookId: string): Promise<OverviewRecord | null> {
+  const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/overview`);
   if (response.status === 404) {
     return null;
   }
   return handleResponse<OverviewRecord>(response);
 }
 
-export async function regenerateOverview(documentId: string): Promise<OverviewRecord> {
-  const response = await fetch(`${API_BASE_URL}/documents/${documentId}/overview/regenerate`, {
+export async function regenerateNotebookOverview(notebookId: string): Promise<OverviewRecord> {
+  const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/overview/regenerate`, {
     method: "POST",
   });
   return handleResponse<OverviewRecord>(response);

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
-  getOverview,
-  regenerateOverview,
+  getNotebookOverview,
+  regenerateNotebookOverview,
   type OverviewRecord,
 } from "../lib/api";
 
@@ -12,7 +12,7 @@ function isInFlight(overview: OverviewRecord | null): boolean {
   return overview === null || overview.status === "pending" || overview.status === "generating";
 }
 
-export function useOverview(documentId: string) {
+export function useOverview(notebookId: string) {
   const [overview, setOverview] = useState<OverviewRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +21,7 @@ export function useOverview(documentId: string) {
 
   const refresh = useCallback(async () => {
     try {
-      const record = await getOverview(documentId);
+      const record = await getNotebookOverview(notebookId);
       setOverview(record);
       setError(null);
     } catch (err) {
@@ -29,7 +29,7 @@ export function useOverview(documentId: string) {
     } finally {
       setIsLoading(false);
     }
-  }, [documentId]);
+  }, [notebookId]);
 
   useEffect(() => {
     void refresh();
@@ -58,14 +58,14 @@ export function useOverview(documentId: string) {
     setIsRegenerating(true);
     setError(null);
     try {
-      const record = await regenerateOverview(documentId);
+      const record = await regenerateNotebookOverview(notebookId);
       setOverview(record);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't restart the overview.");
     } finally {
       setIsRegenerating(false);
     }
-  }, [documentId]);
+  }, [notebookId]);
 
   return { overview, isLoading, error, isRegenerating, regenerate };
 }

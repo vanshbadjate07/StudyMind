@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import db
 from app.config import settings
 from app.db import get_session
-from app.models import Chunk, Document, DocumentStatus, Notebook, Overview
+from app.models import Chunk, Document, DocumentStatus, Notebook, Overview, OverviewStatus
 from app.routers.documents import cleanup_document_storage
 from app.schemas import (
     DocumentList,
@@ -20,7 +20,9 @@ from app.schemas import (
     NotebookList,
     NotebookRead,
     NotebookUpdate,
+    OverviewRead,
 )
+from app.services.overview_generation import generate_overview
 from app.services.processing_pipeline import process_document
 
 router = APIRouter(prefix="/notebooks", tags=["notebooks"])
@@ -35,7 +37,7 @@ STORED_FILENAME = "source.pdf"
 async def create_notebook(
     body: NotebookCreate, session: AsyncSession = Depends(get_session)
 ) -> Notebook:
-    notebook = Notebook(name=(body.name or "").strip() or "Untitled Notebook")
+    notebook = Notebook(name=(body.name or "").strip() or "Untitled")
     session.add(notebook)
     await session.commit()
     await session.refresh(notebook)
@@ -94,9 +96,9 @@ async def delete_notebook(notebook_id: str, session: AsyncSession = Depends(get_
     for document in documents:
         await cleanup_document_storage(document)
         await session.execute(sa_delete(Chunk).where(Chunk.document_id == document.id))
-        await session.execute(sa_delete(Overview).where(Overview.document_id == document.id))
 
     await session.execute(sa_delete(Document).where(Document.notebook_id == notebook_id))
+    await session.execute(sa_delete(Overview).where(Overview.notebook_id == notebook_id))
     await session.delete(notebook)
     await session.commit()
 
@@ -210,3 +212,71 @@ async def list_notebook_documents(
         select(Document).where(Document.notebook_id == notebook_id).order_by(Document.created_at.desc())
     )
     return DocumentList(documents=list(result.scalars().all()))
+
+
+async def _run_overview_generation(notebook_id: str) -> None:
+    # Accessed via the `db` module (not `from app.db import async_session_factory`)
+    # so tests that monkeypatch `db.async_session_factory` are respected here —
+    # see app/main.py's lifespan for the full explanation of this pattern.
+    async with db.async_session_factory() as session:
+        await generate_overview(notebook_id, session)
+
+
+@router.get("/{notebook_id}/overview", response_model=OverviewRead)
+async def get_overview(notebook_id: str, session: AsyncSession = Depends(get_session)) -> OverviewRead:
+    notebook = await session.get(Notebook, notebook_id)
+    if notebook is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notebook not found.")
+
+    result = await session.execute(select(Overview).where(Overview.notebook_id == notebook_id))
+    overview = result.scalar_one_or_none()
+    if overview is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Overview has not started yet."
+        )
+    return OverviewRead.from_model(overview)
+
+
+@router.post(
+    "/{notebook_id}/overview/regenerate", response_model=OverviewRead, status_code=status.HTTP_202_ACCEPTED
+)
+async def regenerate_overview(
+    notebook_id: str,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+) -> OverviewRead:
+    notebook = await session.get(Notebook, notebook_id)
+    if notebook is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notebook not found.")
+
+    has_ready = await session.execute(
+        select(Document.id)
+        .where(Document.notebook_id == notebook_id, Document.status == DocumentStatus.READY)
+        .limit(1)
+    )
+    if has_ready.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No ready documents in this notebook yet.",
+        )
+
+    result = await session.execute(select(Overview).where(Overview.notebook_id == notebook_id))
+    overview = result.scalar_one_or_none()
+    if overview is None:
+        overview = Overview(notebook_id=notebook_id, status=OverviewStatus.PENDING)
+        session.add(overview)
+    elif overview.status == OverviewStatus.GENERATING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Overview generation is already in progress for this notebook.",
+        )
+    else:
+        overview.status = OverviewStatus.PENDING
+        overview.error_reason = None
+        overview.error_detail = None
+    await session.commit()
+    await session.refresh(overview)
+
+    background_tasks.add_task(_run_overview_generation, notebook_id)
+
+    return OverviewRead.from_model(overview)
