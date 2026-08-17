@@ -7,45 +7,73 @@ interface UploadDropzoneProps {
   onUploaded: (document: DocumentRecord) => void;
 }
 
+interface UploadItem {
+  id: string;
+  file: File;
+  progress: number;
+  status: "queued" | "uploading" | "error";
+  error?: string;
+}
+
 export function UploadDropzone({ notebookId, onUploaded }: UploadDropzoneProps) {
   const [isDragging, setIsDragging] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [uploadingName, setUploadingName] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
+  const [items, setItems] = useState<UploadItem[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const isBusy = items.some((item) => item.status === "queued" || item.status === "uploading");
 
-  const handleFile = async (file: File) => {
-    setError(null);
-    const validation = validateFile(file);
+  const updateItem = (id: string, patch: Partial<UploadItem>) => {
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  };
+
+  const uploadOne = async (item: UploadItem) => {
+    const validation = validateFile(item.file);
     if (!validation.valid) {
-      setError(validation.reason ?? "This file can't be uploaded.");
+      updateItem(item.id, { status: "error", error: validation.reason ?? "This file can't be uploaded." });
       return;
     }
 
-    setUploadingName(file.name);
-    setProgress(0);
+    updateItem(item.id, { status: "uploading" });
     try {
-      const document = await uploadDocument(notebookId, file, setProgress);
+      const document = await uploadDocument(notebookId, item.file, (percent) => {
+        updateItem(item.id, { progress: percent });
+      });
       onUploaded(document);
+      setItems((prev) => prev.filter((existing) => existing.id !== item.id));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Upload failed. Please try again.");
-    } finally {
-      setUploadingName(null);
-      setProgress(0);
-      if (inputRef.current) inputRef.current.value = "";
+      updateItem(item.id, {
+        status: "error",
+        error: err instanceof ApiError ? err.message : "Upload failed. Please try again.",
+      });
     }
+  };
+
+  const handleFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+    const newItems: UploadItem[] = files.map((file) => ({
+      id: crypto.randomUUID(),
+      file,
+      progress: 0,
+      status: "queued",
+    }));
+    setItems((prev) => [...prev, ...newItems]);
+    for (const item of newItems) {
+      await uploadOne(item);
+    }
+  };
+
+  const dismissItem = (id: string) => {
+    setItems((prev) => prev.filter((item) => item.id !== id));
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(false);
-    const file = event.dataTransfer.files[0];
-    if (file) void handleFile(file);
+    void handleFiles(Array.from(event.dataTransfer.files));
   };
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) void handleFile(file);
+    void handleFiles(Array.from(event.target.files ?? []));
+    if (inputRef.current) inputRef.current.value = "";
   };
 
   return (
@@ -67,10 +95,11 @@ export function UploadDropzone({ notebookId, onUploaded }: UploadDropzoneProps) 
             id="document-upload"
             type="file"
             accept=".pdf"
+            multiple
             aria-label="Upload PDF document"
             className="sr-only"
             onChange={handleChange}
-            disabled={uploadingName !== null}
+            disabled={isBusy}
           />
           <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-subtle">
             <UploadIcon />
@@ -79,34 +108,51 @@ export function UploadDropzone({ notebookId, onUploaded }: UploadDropzoneProps) 
             <p className="text-sm font-medium text-ink">
               <span className="text-brand">Click to upload</span> or drag and drop
             </p>
-            <p className="mt-1 text-xs text-ink-muted">PDF, up to 50MB</p>
+            <p className="mt-1 text-xs text-ink-muted">PDF, up to 50MB — select multiple to upload at once</p>
           </div>
         </label>
-
-        {uploadingName && (
-          <div className="mt-6" aria-live="polite">
-            <p className="mb-2 truncate text-xs text-ink-muted">Uploading {uploadingName}…</p>
-            <div
-              role="progressbar"
-              aria-valuenow={progress}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label={`Uploading ${uploadingName}`}
-              className="h-1.5 w-full overflow-hidden rounded-full bg-line"
-            >
-              <div
-                className="h-full rounded-full bg-brand transition-[width] duration-150"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          </div>
-        )}
       </div>
 
-      {error && (
-        <p role="alert" className="mt-3 text-sm text-status-failed">
-          {error}
-        </p>
+      {items.length > 0 && (
+        <ul className="mt-4 space-y-2">
+          {items.map((item) => (
+            <li key={item.id} className="rounded-lg border border-line bg-surface p-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="truncate text-xs text-ink-muted">{item.file.name}</p>
+                {item.status === "error" && (
+                  <button
+                    type="button"
+                    onClick={() => dismissItem(item.id)}
+                    className="shrink-0 text-xs text-ink-muted hover:text-ink"
+                    aria-label={`Dismiss error for ${item.file.name}`}
+                  >
+                    Dismiss
+                  </button>
+                )}
+              </div>
+
+              {item.status === "error" ? (
+                <p role="alert" className="mt-1 text-sm text-status-failed">
+                  {item.error}
+                </p>
+              ) : (
+                <div
+                  role="progressbar"
+                  aria-valuenow={item.progress}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label={`Uploading ${item.file.name}`}
+                  className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-line"
+                >
+                  <div
+                    className="h-full rounded-full bg-brand transition-[width] duration-150"
+                    style={{ width: `${item.progress}%` }}
+                  />
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

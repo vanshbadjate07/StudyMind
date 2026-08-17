@@ -5,8 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.db import Base
-from app.models import ChatMessage, ChatRole, Document, DocumentStatus, GoalType, Notebook
-from app.services.chat import NOT_COVERED_MESSAGE, ask_question
+from app.models import ChatMessage, ChatRole, Document, DocumentStatus, GoalType, Notebook, Overview, OverviewStatus
+from app.services.chat import ask_question
 from app.services.embeddings import embed_texts
 from app.services.vector_store import VectorStore
 
@@ -77,6 +77,14 @@ async def _add_ready_document(
         page_numbers=pages,
     )
     return doc
+
+
+async def _add_ready_overview(session: AsyncSession, notebook_id: str, short_summary: str) -> Overview:
+    overview = Overview(notebook_id=notebook_id, status=OverviewStatus.READY, short_summary=short_summary)
+    session.add(overview)
+    await session.commit()
+    await session.refresh(overview)
+    return overview
 
 
 async def _messages_for(session: AsyncSession, notebook_id: str) -> list[ChatMessage]:
@@ -191,22 +199,32 @@ class TestGroundedAnswers:
 
 
 class TestUngroundedAnswers:
-    async def test_irrelevant_question_without_internet_mode_never_calls_the_llm(
+    async def test_irrelevant_question_without_internet_mode_still_gets_a_real_answer(
         self, session: AsyncSession, vector_store: VectorStore
     ) -> None:
+        """Regression test: there used to be a fixed canned-string reply for
+        this case that never called the LLM. That was too strict — it also
+        caught greetings and general "what's this about" questions, which
+        aren't factual claims to hallucinate, just things the notebook's own
+        overview already answers. The LLM is now always called, given the
+        overview as context, and told to be honest if a specific fact truly
+        isn't covered."""
         notebook = await _create_notebook(session, name="ML Notes")
         await _add_ready_document(session, vector_store, notebook.id, "ml.pdf", ML_TEXTS, pages=[1, 2, 3])
-        client = ScriptedTextClient([])  # would raise IndexError if called
+        await _add_ready_overview(session, notebook.id, "This covers machine learning fundamentals.")
+        client = ScriptedTextClient(["I don't see a pizza dough recipe in your material."])
 
         reply = await ask_question(
             notebook, "What's the best pizza dough recipe?", False, session, vector_store, client
         )
 
-        assert reply.content == NOT_COVERED_MESSAGE
+        assert reply.content == "I don't see a pizza dough recipe in your material."
         assert reply.grounded is False
         assert reply.used_internet is False
         assert reply.citations_json is None
-        assert client.prompts == []
+        assert len(client.prompts) == 1
+        assert "machine learning fundamentals" in client.prompts[0].lower()
+        assert "isn't covered in your uploaded material" in client.prompts[0].lower()
 
     async def test_irrelevant_question_with_internet_mode_answers_from_general_knowledge(
         self, session: AsyncSession, vector_store: VectorStore
@@ -223,19 +241,40 @@ class TestUngroundedAnswers:
         assert reply.used_internet is True
         assert reply.content == "Pizza dough needs flour, water, yeast, and salt."
         assert reply.citations_json is None
-        assert "isn't covered in your uploaded material" in client.prompts[0].lower()
+        assert "general knowledge" in client.prompts[0].lower()
 
-    async def test_notebook_with_no_ready_documents_is_treated_as_ungrounded(
+    async def test_notebook_with_no_ready_documents_still_gets_a_real_answer(
         self, session: AsyncSession, vector_store: VectorStore
     ) -> None:
+        """A greeting to a brand-new, empty notebook should get a normal
+        response, not a confusing refusal about material that was never
+        asked about."""
         notebook = await _create_notebook(session, name="Empty Notebook")
-        client = ScriptedTextClient([])
+        client = ScriptedTextClient(["Hi! Upload a document to get started."])
 
-        reply = await ask_question(notebook, "Anything in here?", False, session, vector_store, client)
+        reply = await ask_question(notebook, "Hi", False, session, vector_store, client)
 
-        assert reply.content == NOT_COVERED_MESSAGE
+        assert reply.content == "Hi! Upload a document to get started."
         assert reply.grounded is False
-        assert client.prompts == []
+        assert len(client.prompts) == 1
+        assert "doesn't have any processed material yet" in client.prompts[0].lower()
+
+    async def test_overview_is_included_as_context_when_no_specific_passage_matches(
+        self, session: AsyncSession, vector_store: VectorStore
+    ) -> None:
+        notebook = await _create_notebook(session, name="ML Notes")
+        await _add_ready_document(session, vector_store, notebook.id, "ml.pdf", ML_TEXTS, pages=[1, 2, 3])
+        await _add_ready_overview(
+            session, notebook.id, "This notebook covers supervised and unsupervised learning."
+        )
+        client = ScriptedTextClient(["This notebook covers machine learning topics."])
+
+        reply = await ask_question(
+            notebook, "What is this notebook generally about?", False, session, vector_store, client
+        )
+
+        assert reply.grounded is False
+        assert "supervised and unsupervised learning" in client.prompts[0].lower()
 
 
 class TestConversationHistory:

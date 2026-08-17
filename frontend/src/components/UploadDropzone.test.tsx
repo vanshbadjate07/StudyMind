@@ -79,4 +79,62 @@ describe("UploadDropzone", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/does not look like a valid pdf/i);
   });
+
+  it("uploads multiple selected PDFs, calling onUploaded once per file", async () => {
+    const makeDocument = (id: string, filename: string): api.DocumentRecord => ({
+      id,
+      notebook_id: "notebook-1",
+      filename,
+      status: "pending",
+      page_count: null,
+      char_count: null,
+      chunk_count: null,
+      error_reason: null,
+      error_detail: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+    vi.spyOn(api, "uploadDocument").mockImplementation(async (_notebookId, file) =>
+      makeDocument(`${file.name}-id`, file.name),
+    );
+    const onUploaded = vi.fn();
+    render(<UploadDropzone notebookId="notebook-1" onUploaded={onUploaded} />);
+
+    const input = screen.getByLabelText(/upload pdf document/i);
+    const fileA = new File(["%PDF-1.4 a"], "a.pdf", { type: "application/pdf" });
+    const fileB = new File(["%PDF-1.4 b"], "b.pdf", { type: "application/pdf" });
+    fireEvent.change(input, { target: { files: [fileA, fileB] } });
+
+    await waitFor(() => expect(onUploaded).toHaveBeenCalledTimes(2));
+    expect(onUploaded).toHaveBeenCalledWith(makeDocument("a.pdf-id", "a.pdf"));
+    expect(onUploaded).toHaveBeenCalledWith(makeDocument("b.pdf-id", "b.pdf"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("uploads valid files even when one file in the same batch is rejected", async () => {
+    const fakeDocument: api.DocumentRecord = {
+      id: "good-id",
+      notebook_id: "notebook-1",
+      filename: "good.pdf",
+      status: "pending",
+      page_count: null,
+      char_count: null,
+      chunk_count: null,
+      error_reason: null,
+      error_detail: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+    vi.spyOn(api, "uploadDocument").mockResolvedValue(fakeDocument);
+    const onUploaded = vi.fn();
+    render(<UploadDropzone notebookId="notebook-1" onUploaded={onUploaded} />);
+
+    const input = screen.getByLabelText(/upload pdf document/i);
+    const badFile = new File(["hello"], "notes.txt", { type: "text/plain" });
+    const goodFile = new File(["%PDF-1.4 good"], "good.pdf", { type: "application/pdf" });
+    fireEvent.change(input, { target: { files: [badFile, goodFile] } });
+
+    await waitFor(() => expect(onUploaded).toHaveBeenCalledWith(fakeDocument));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/only pdf files/i);
+  });
 });

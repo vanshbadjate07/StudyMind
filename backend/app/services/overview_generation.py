@@ -243,15 +243,18 @@ async def _maybe_autoname_notebook(
     user has already renamed (its name would no longer match the default
     pattern), and never lets a failure here affect the overview it's attached
     to — this is called from inside the same safety net as the rest of
-    generation."""
+    generation. Uses the same retry-then-give-up helper as the rest of
+    generation (not a single unretried attempt) — a small local model
+    occasionally returns malformed JSON on the first try, and without a
+    retry that silently left a notebook named "Untitled" forever with no
+    way to tell why."""
     notebook = await session.get(Notebook, notebook_id)
     if notebook is None or not UNTITLED_NAME_PATTERN.match(notebook.name):
         return
     topics_text = "\n".join(f"- {t.title}: {t.summary}" for t in result.topics[:8])
     prompt = TITLE_PROMPT_TEMPLATE.format(topics=topics_text)
     try:
-        raw = await client.generate_json(prompt, temperature=0.3)
-        suggestion = TitleSuggestion.model_validate_json(raw)
+        suggestion = await _call_with_retry(client, prompt, TitleSuggestion)
         title = suggestion.title.strip()
         if title:
             notebook.name = title[:255]

@@ -5,15 +5,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models import ChatMessage, ChatRole, Document, DocumentStatus, GoalType, Notebook
+from app.models import (
+    ChatMessage,
+    ChatRole,
+    Document,
+    DocumentStatus,
+    GoalType,
+    Notebook,
+    Overview,
+    OverviewStatus,
+)
 from app.services.ollama_client import OllamaClient
 from app.services.vector_store import VectorSearchResult, VectorStore, get_vector_store
-
-NOT_COVERED_MESSAGE = (
-    "I couldn't find anything about this in your uploaded material. Try "
-    "rephrasing your question, or turn on internet mode for a "
-    "general-knowledge answer instead."
-)
 
 GOAL_PROMPT_HINTS: dict[GoalType, str] = {
     GoalType.EXAM: (
@@ -46,15 +49,26 @@ GROUNDED_PROMPT_TEMPLATE = (
     "answer the question, say what's missing rather than guessing."
 )
 
-UNGROUNDED_PROMPT_TEMPLATE = (
-    "You are a study assistant. The user's uploaded material does not appear "
-    "to cover this question. Answer using your own general knowledge, and "
-    "start your answer by clearly noting that this isn't covered in their "
-    'material (for example: "This isn\'t covered in your uploaded material, '
-    'but...").\n\n'
+# Used whenever retrieval didn't find a specific passage closely matching the
+# question. This still ALWAYS gets a real model-generated answer, not a fixed
+# string — the strict per-fact grounding in GROUNDED_PROMPT_TEMPLATE exists to
+# stop factual hallucination, but a plain greeting or a general "what's this
+# about" question isn't a factual claim to hallucinate; it's exactly what the
+# notebook's own overview already answers. Giving the model that overview as
+# context (when one exists) keeps the same honesty guarantee — it can only
+# draw on real, already-generated material — while letting ordinary
+# conversation and summary-style questions actually get answered.
+NO_MATCH_PROMPT_TEMPLATE = (
+    "You are a study assistant for the user's uploaded material. A search for a "
+    "specific passage matching this question didn't turn up a close result.\n\n"
+    "{overview_clause}"
+    "{goal_clause}"
     "{history_clause}"
     "Question: {question}\n\n"
-    "Answer clearly and directly in plain prose."
+    "If this is a greeting or general conversation, respond naturally and "
+    "briefly. If it's a general question about the material (what it covers, a "
+    "summary), answer using the summary above when one is available. If it asks "
+    "for a specific fact or detail the summary doesn't contain,{internet_instruction}"
 )
 
 MAX_CITATIONS = 5
@@ -69,6 +83,20 @@ def _internet_clause(internet_mode: bool) -> str:
     )
 
 
+def _internet_instruction(internet_mode: bool) -> str:
+    if internet_mode:
+        return (
+            " answer using your own general knowledge instead, and clearly note "
+            "that it's beyond what's in their material (for example: \"This isn't "
+            'in your uploaded material, but...").'
+        )
+    return (
+        " say plainly that this isn't covered in your uploaded material rather "
+        "than guessing — you can suggest they rephrase, upload more material, or "
+        "turn on internet mode for a general-knowledge answer."
+    )
+
+
 def _goal_clause(notebook: Notebook) -> str:
     if notebook.goal_type is None:
         return ""
@@ -76,6 +104,12 @@ def _goal_clause(notebook: Notebook) -> str:
     if notebook.goal_type == GoalType.CUSTOM:
         hint = hint.format(description=notebook.goal_description or "not specified")
     return hint + "\n\n"
+
+
+def _overview_clause(overview: Overview | None) -> str:
+    if overview is None or not overview.short_summary:
+        return "This notebook doesn't have any processed material yet.\n\n"
+    return f"General summary of this notebook's material:\n{overview.short_summary}\n\n"
 
 
 def _history_clause(history: list[ChatMessage]) -> str:
@@ -123,18 +157,19 @@ async def ask_question(
     client: OllamaClient | None = None,
 ) -> ChatMessage:
     """Answers one question against a notebook's material, persisting both
-    the user's question and the assistant's reply. Grounding is decided by
-    retrieval quality (the best match's vector distance against a
-    calibrated threshold), not by asking the LLM to self-report whether it
-    used the material — a small local model can't be trusted to police that
-    honestly, but the retrieval score can. If nothing relevant is found and
-    internet mode is off, the LLM isn't even called: a fixed, honest refusal
-    is used instead, which can never hallucinate.
+    the user's question and the assistant's reply. The LLM is always called —
+    there's no fixed canned reply — but what it's given and told to do depends
+    on retrieval quality: a specific-passage match (grounded, decided by
+    vector distance against a calibrated threshold, not by asking the LLM to
+    self-report) gets those excerpts and a strict "answer only from this"
+    instruction; anything else (a broad question, a greeting, or a genuine gap
+    in the material) gets the notebook's own overview as context plus an
+    honest-fallback instruction, so it can hold a normal conversation without
+    ever being able to invent facts that aren't in already-generated material.
 
-    Raises OllamaUnreachableError / OllamaTimeoutError if the LLM call fails
-    (only reachable when grounded, or when internet_mode allows an
-    ungrounded answer) — the caller decides how to surface that; the user's
-    question is already persisted by that point regardless."""
+    Raises OllamaUnreachableError / OllamaTimeoutError if the LLM call fails —
+    the caller decides how to surface that; the user's question is already
+    persisted by that point regardless."""
     vector_store = vector_store or get_vector_store()
     client = client or OllamaClient(
         model=settings.chat_model,
@@ -190,20 +225,26 @@ async def ask_question(
             history_clause=_history_clause(history),
             question=question,
         )
-        answer = await client.generate_text(prompt)
         citations = _build_citations(relevant_hits, filenames)
         used_internet = False
-    elif internet_mode:
-        prompt = UNGROUNDED_PROMPT_TEMPLATE.format(
-            history_clause=_history_clause(history), question=question
-        )
-        answer = await client.generate_text(prompt)
-        citations = []
-        used_internet = True
     else:
-        answer = NOT_COVERED_MESSAGE
+        overview_result = await session.execute(
+            select(Overview).where(
+                Overview.notebook_id == notebook.id, Overview.status == OverviewStatus.READY
+            )
+        )
+        overview = overview_result.scalar_one_or_none()
+        prompt = NO_MATCH_PROMPT_TEMPLATE.format(
+            overview_clause=_overview_clause(overview),
+            goal_clause=_goal_clause(notebook),
+            history_clause=_history_clause(history),
+            question=question,
+            internet_instruction=_internet_instruction(internet_mode),
+        )
         citations = []
-        used_internet = False
+        used_internet = internet_mode
+
+    answer = await client.generate_text(prompt)
 
     assistant_message = ChatMessage(
         notebook_id=notebook.id,

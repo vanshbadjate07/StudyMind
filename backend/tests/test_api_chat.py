@@ -68,10 +68,14 @@ def test_grounded_question_returns_answer_with_citations(client: TestClient, mon
     assert body["citations"][0]["filename"] == "normal.pdf"
 
 
-def test_irrelevant_question_returns_canned_response_without_calling_ollama(client: TestClient) -> None:
-    # No monkeypatch of app.services.chat.OllamaClient here — conftest's
-    # default stub raises OllamaUnreachableError if actually called, so a
-    # 201 here proves the "skip the LLM entirely" path really works.
+def test_irrelevant_question_without_internet_mode_still_gets_a_real_answer(
+    client: TestClient, monkeypatch
+) -> None:
+    # The LLM is always called now, even when nothing relevant was retrieved —
+    # there's no fixed canned string anymore, so this must supply a fake
+    # client rather than relying on the default (unreachable) stub.
+    fake = _FakeTextClient("I don't see a pizza dough recipe in your material.")
+    monkeypatch.setattr("app.services.chat.OllamaClient", lambda *a, **k: fake)
     notebook_id = _ready_notebook(client)
 
     response = client.post(
@@ -83,7 +87,7 @@ def test_irrelevant_question_returns_canned_response_without_calling_ollama(clie
     body = response.json()
     assert body["grounded"] is False
     assert body["used_internet"] is False
-    assert "couldn't find anything" in body["content"].lower()
+    assert body["content"] == "I don't see a pizza dough recipe in your material."
 
 
 def test_irrelevant_question_with_internet_mode_answers_from_general_knowledge(
