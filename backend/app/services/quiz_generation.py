@@ -1,4 +1,5 @@
 import json
+import re
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
@@ -48,7 +49,9 @@ QUIZ_PROMPT_TEMPLATE = (
     "Each question's four options should be plausible and similar in length "
     "and specificity — avoid options that are obviously wrong just from how "
     "they're phrased, and vary which position (0-3) holds the correct answer "
-    "across questions rather than always using the same one.\n\n"
+    "across questions rather than always using the same one. The four options "
+    "must be four genuinely different answers — never list the same real-world "
+    "thing twice under different spelling, capitalization, or naming.\n\n"
     "Material:\n{text}"
 )
 
@@ -178,6 +181,36 @@ def _build_sections(chunks: list[Chunk]) -> list[str]:
     return sections
 
 
+_NON_ALPHANUMERIC = re.compile(r"[^a-z0-9]")
+
+
+def _normalize_option(text: str) -> str:
+    """Case/punctuation/whitespace-insensitive form used only to catch two
+    options naming the same thing (e.g. "Llama" vs "LLaMA") — not a general
+    semantic-similarity check, just enough to catch the exact failure mode
+    observed: the model offering the same real-world answer twice under
+    different capitalization, with one arbitrarily marked correct and the
+    other arbitrarily marked wrong."""
+    return _NON_ALPHANUMERIC.sub("", text.lower())
+
+
+def _has_duplicate_options(question: QuizQuestionResult) -> bool:
+    normalized = [_normalize_option(option) for option in question.options]
+    return len(set(normalized)) != len(normalized)
+
+
+def _drop_duplicate_option_questions(questions: list[QuizQuestionResult]) -> list[QuizQuestionResult]:
+    """The prompt instructs against this, but the small local model doesn't
+    always comply — belt and suspenders, same reasoning as chat.py's
+    _is_unfounded_refusal: a prompt instruction alone isn't a guarantee, so
+    anything that would show the user two options for the same real answer
+    (one arbitrarily "correct", one arbitrarily "wrong") is filtered out
+    here rather than trusted to never happen. Dropping bad questions instead
+    of failing the whole batch means one bad question just means slightly
+    fewer than requested, not a failed generation."""
+    return [q for q in questions if not _has_duplicate_options(q)]
+
+
 async def _generate_questions(
     client: OllamaClient, sections: list[str], options: QuizGenerateRequest
 ) -> list[QuizQuestionResult]:
@@ -195,7 +228,7 @@ async def _generate_questions(
             text=sections[0],
         )
         result = await _call_with_retry(client, prompt, QuizGenerationResult)
-        return result.questions[:target]
+        return _drop_duplicate_option_questions(result.questions)[:target]
 
     # ceil(target / num_sections) per section, so a notebook with more
     # sections than questions still gets at least one question from each.
@@ -210,7 +243,7 @@ async def _generate_questions(
             text=section,
         )
         result = await _call_with_retry(client, prompt, QuizGenerationResult)
-        all_questions.extend(result.questions)
+        all_questions.extend(_drop_duplicate_option_questions(result.questions))
     return all_questions[:target]
 
 

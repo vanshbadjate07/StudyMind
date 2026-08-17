@@ -6,9 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.db import Base
 from app.models import Chunk, Document, DocumentStatus, Notebook, Quiz, QuizStatus
-from app.schemas import QuizDifficulty, QuizGenerateRequest
+from app.schemas import QuizDifficulty, QuizGenerateRequest, QuizQuestionResult
 from app.services.ollama_client import OllamaUnreachableError
-from app.services.quiz_generation import _build_sections, generate_quiz
+from app.services.quiz_generation import _build_sections, _has_duplicate_options, generate_quiz
 
 
 @pytest.fixture
@@ -43,10 +43,10 @@ class UnreachableClient:
         raise OllamaUnreachableError("connection refused")
 
 
-def _question(text: str = "Q?", correct_index: int = 0) -> dict:
+def _question(text: str = "Q?", correct_index: int = 0, options: list[str] | None = None) -> dict:
     return {
         "question": text,
-        "options": ["A", "B", "C", "D"],
+        "options": options or ["A", "B", "C", "D"],
         "correct_index": correct_index,
         "explanation": "Because.",
     }
@@ -94,6 +94,25 @@ class TestBuildSections:
         assert _build_sections([]) == []
 
 
+class TestHasDuplicateOptions:
+    """Regression coverage for the reported bug: a question offering both
+    "Llama" and "LLaMA" as separate options, with one arbitrarily marked
+    correct and the other arbitrarily marked wrong — the user picking the
+    "wrong" one was actually picking a correct answer spelled differently."""
+
+    def test_same_word_different_capitalization_is_a_duplicate(self) -> None:
+        q = QuizQuestionResult(**_question(options=["Llama", "Mistral", "LLaMA", "GPT"]))
+        assert _has_duplicate_options(q) is True
+
+    def test_same_phrase_with_extra_whitespace_or_punctuation_is_a_duplicate(self) -> None:
+        q = QuizQuestionResult(**_question(options=["Self-Supervised Learning", "A", "B", "self supervised learning"]))
+        assert _has_duplicate_options(q) is True
+
+    def test_four_genuinely_different_options_is_not_a_duplicate(self) -> None:
+        q = QuizQuestionResult(**_question(options=["Mistral", "Llama", "GPT-4", "Claude"]))
+        assert _has_duplicate_options(q) is False
+
+
 class TestGenerateQuiz:
     async def test_success_produces_ready_quiz_with_questions(self, session: AsyncSession) -> None:
         notebook = await _create_notebook_with_ready_document(session, ["Some study content about biology."])
@@ -109,6 +128,33 @@ class TestGenerateQuiz:
         assert len(questions) == 2
         assert questions[0]["question"] == "What is a cell?"
         assert questions[1]["correct_index"] == 2
+
+    async def test_a_question_with_duplicate_options_is_dropped_not_shown(
+        self, session: AsyncSession
+    ) -> None:
+        notebook = await _create_notebook_with_ready_document(session, ["Some study content about LLMs."])
+        notebook_id = notebook.id
+        response = json.dumps(
+            {
+                "questions": [
+                    _question("Good question?"),
+                    _question(
+                        "Which LLM family?",
+                        correct_index=2,
+                        options=["Mistral", "Llama", "LLaMA", "GPT"],
+                    ),
+                ]
+            }
+        )
+        client = ScriptedClient([response])
+
+        await generate_quiz(notebook_id, session, client)
+
+        row = await _get_quiz_row(session, notebook_id)
+        assert row.status == QuizStatus.READY
+        questions = json.loads(row.questions_json)
+        assert len(questions) == 1
+        assert questions[0]["question"] == "Good question?"
 
     async def test_creates_the_quiz_row_itself_when_none_exists_yet(self, session: AsyncSession) -> None:
         notebook = await _create_notebook_with_ready_document(session, ["Some content."])
@@ -200,7 +246,18 @@ class TestGenerateQuiz:
         prompt = client.calls[0].lower()
         assert "reasoning about the material" in prompt  # hard-difficulty clause
         assert "own general knowledge" in prompt  # general-knowledge clause
-        assert "focus especially on: chapter 3" in prompt
+
+    async def test_prompt_forbids_the_same_answer_listed_twice_under_different_spelling(
+        self, session: AsyncSession
+    ) -> None:
+        notebook = await _create_notebook_with_ready_document(session, ["Some content."])
+        notebook_id = notebook.id
+        client = ScriptedClient([json.dumps({"questions": [_question()]})])
+
+        await generate_quiz(notebook_id, session, client)
+
+        prompt = client.calls[0].lower()
+        assert "never list the same real-world" in prompt
 
     async def test_combines_chunks_from_multiple_documents_in_the_notebook(
         self, session: AsyncSession
