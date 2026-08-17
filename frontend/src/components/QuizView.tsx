@@ -246,119 +246,93 @@ function QuizTaker({
   questions: QuizQuestion[];
   onReconfigure: () => void;
 }) {
-  const [currentIndex, setCurrentIndex] = useState(0);
+  // Selecting an option *is* submitting that question — there's no separate
+  // submit step, and once a question has an entry here it's locked in
+  // (QuizOption disables further clicks via `revealed`).
   const [answers, setAnswers] = useState<Record<number, number>>({});
-  const [revealed, setRevealed] = useState<Record<number, boolean>>({});
-  const [finished, setFinished] = useState(false);
 
-  const current = questions[currentIndex];
-  const isRevealed = revealed[currentIndex] ?? false;
-  const selectedOption = answers[currentIndex];
-  const isLastQuestion = currentIndex === questions.length - 1;
+  const answeredCount = Object.keys(answers).length;
+  const allAnswered = answeredCount === questions.length;
   const score = questions.reduce((total, q, i) => total + (answers[i] === q.correct_index ? 1 : 0), 0);
 
-  const selectAnswer = (optionIndex: number) => {
-    if (isRevealed) return;
-    setAnswers((prev) => ({ ...prev, [currentIndex]: optionIndex }));
+  const selectAnswer = (questionIndex: number, optionIndex: number) => {
+    if (questionIndex in answers) return; // already locked in
+    setAnswers((prev) => ({ ...prev, [questionIndex]: optionIndex }));
   };
 
-  const submitCurrent = () => {
-    setRevealed((prev) => ({ ...prev, [currentIndex]: true }));
-  };
+  const retake = () => setAnswers({});
 
-  const goNext = () => {
-    if (isLastQuestion) {
-      setFinished(true);
-    } else {
-      setCurrentIndex((i) => i + 1);
-    }
-  };
-
-  const retake = () => {
-    setCurrentIndex(0);
-    setAnswers({});
-    setRevealed({});
-    setFinished(false);
-  };
-
-  if (finished) {
-    return (
-      <div className="flex flex-col items-center gap-4 rounded-xl border border-line bg-surface p-8 text-center">
-        <p className="text-lg font-semibold text-ink">
-          {score} / {questions.length} correct
-        </p>
-        <div className="flex gap-2">
+  return (
+    <div className="pb-10">
+      <div className="sticky top-0 z-10 mb-4 rounded-xl border border-line bg-surface px-4 py-3 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm font-medium text-ink">
+            {allAnswered ? "Quiz complete" : `${answeredCount} of ${questions.length} answered`}
+          </span>
+          {answeredCount > 0 && (
+            <span
+              className={`text-sm font-semibold ${allAnswered ? "text-status-ready" : "text-ink-muted"}`}
+            >
+              {allAnswered
+                ? `${score} / ${questions.length} correct`
+                : `${score} / ${answeredCount} correct so far`}
+            </span>
+          )}
+        </div>
+        {answeredCount > 0 && (
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-line">
+            <div
+              className="h-full rounded-full bg-brand transition-[width] duration-300"
+              style={{ width: `${(answeredCount / questions.length) * 100}%` }}
+            />
+          </div>
+        )}
+        <div className="mt-3 flex gap-2">
           <button
             type="button"
             onClick={retake}
-            className="rounded-lg border border-line px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-paper"
+            disabled={answeredCount === 0}
+            className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-paper disabled:opacity-50"
           >
             Retake
           </button>
           <button
             type="button"
             onClick={onReconfigure}
-            className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover"
+            className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-muted transition-colors hover:bg-paper hover:text-ink"
           >
             New questions
           </button>
         </div>
       </div>
-    );
-  }
 
-  return (
-    <div className="pb-10">
-      <div className="mb-3 flex items-center justify-between text-xs text-ink-muted">
-        <span>
-          Question {currentIndex + 1} of {questions.length}
-        </span>
-        <button type="button" onClick={onReconfigure} className="text-ink-faint transition-colors hover:text-ink">
-          Reconfigure
-        </button>
-      </div>
-
-      <div className="rounded-xl border border-line bg-surface p-4">
-        <p className="text-sm font-medium text-ink">{current.question}</p>
-        <div
-          role="radiogroup"
-          aria-label={`Question ${currentIndex + 1} options`}
-          className="mt-3 space-y-2"
-        >
-          {current.options.map((option, optionIndex) => (
-            <QuizOption
-              key={optionIndex}
-              option={option}
-              isSelected={selectedOption === optionIndex}
-              isCorrect={optionIndex === current.correct_index}
-              revealed={isRevealed}
-              onSelect={() => selectAnswer(optionIndex)}
-            />
-          ))}
-        </div>
-        {isRevealed && <p className="mt-3 text-xs leading-relaxed text-ink-muted">{current.explanation}</p>}
-      </div>
-
-      <div className="mt-4 flex justify-end">
-        {!isRevealed ? (
-          <button
-            type="button"
-            onClick={submitCurrent}
-            disabled={selectedOption === undefined}
-            className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
-          >
-            Submit
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={goNext}
-            className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover"
-          >
-            {isLastQuestion ? "See results" : "Next question"}
-          </button>
-        )}
-      </div>
+      <ol className="space-y-6">
+        {questions.map((q, questionIndex) => {
+          const isAnswered = questionIndex in answers;
+          return (
+            <li key={questionIndex} className="rounded-xl border border-line bg-surface p-4">
+              <p className="text-sm font-medium text-ink">{`${questionIndex + 1}. ${q.question}`}</p>
+              <div
+                role="radiogroup"
+                aria-label={`Question ${questionIndex + 1} options`}
+                className="mt-3 space-y-2"
+              >
+                {q.options.map((option, optionIndex) => (
+                  <QuizOption
+                    key={optionIndex}
+                    option={option}
+                    isSelected={answers[questionIndex] === optionIndex}
+                    isCorrect={optionIndex === q.correct_index}
+                    revealed={isAnswered}
+                    onSelect={() => selectAnswer(questionIndex, optionIndex)}
+                  />
+                ))}
+              </div>
+              {isAnswered && <p className="mt-3 text-xs leading-relaxed text-ink-muted">{q.explanation}</p>}
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }

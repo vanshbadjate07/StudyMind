@@ -108,32 +108,58 @@ describe("QuizView", () => {
     expect(await screen.findByText(/set up your quiz/i)).toBeInTheDocument();
   });
 
-  it("shows one question at a time and reveals the answer only after submitting", async () => {
+  it("shows every question at once", async () => {
+    vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
+
+    render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
+
+    expect(await screen.findByText(/what is 2 \+ 2\?/i)).toBeInTheDocument();
+    expect(screen.getByText(/what is the capital of france\?/i)).toBeInTheDocument();
+    expect(screen.getAllByRole("radio")).toHaveLength(8);
+    expect(screen.getByText("0 of 2 answered")).toBeInTheDocument();
+  });
+
+  it("grades a question the instant an option is selected, with no separate submit step", async () => {
     vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
     const user = userEvent.setup();
 
     render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
     await screen.findByText(/what is 2 \+ 2\?/i);
 
-    expect(screen.queryByText(/what is the capital of france\?/i)).not.toBeInTheDocument();
-    expect(screen.getByText("Question 1 of 2")).toBeInTheDocument();
-
-    const submit = screen.getByRole("button", { name: /^submit$/i });
-    expect(submit).toBeDisabled();
-
-    await user.click(screen.getByRole("radio", { name: "4" }));
-    expect(submit).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /^submit$/i })).not.toBeInTheDocument();
     expect(screen.queryByText("2 + 2 = 4.")).not.toBeInTheDocument();
 
-    await user.click(submit);
+    await user.click(screen.getByRole("radio", { name: "4" }));
 
-    // Answer revealed immediately for this question, before moving on.
+    // Graded immediately — no submit click needed.
     expect(screen.getByText("2 + 2 = 4.")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "4" })).toHaveClass("border-status-ready");
-    expect(screen.getByRole("button", { name: /next question/i })).toBeInTheDocument();
+    expect(screen.getByText("1 of 2 answered")).toBeInTheDocument();
+    expect(screen.getByText("1 / 1 correct so far")).toBeInTheDocument();
+
+    // The other question is untouched and still answerable.
+    expect(screen.getByRole("radio", { name: "Paris" })).not.toBeDisabled();
   });
 
-  it("advances to the next question and shows a final score at the end", async () => {
+  it("locks in the first choice — clicking another option afterward does nothing", async () => {
+    vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
+    const user = userEvent.setup();
+
+    render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
+    await screen.findByText(/what is 2 \+ 2\?/i);
+
+    await user.click(screen.getByRole("radio", { name: "3" })); // wrong, locks in
+    expect(screen.getByRole("radio", { name: "3" })).toHaveClass("border-status-failed");
+    expect(screen.getByRole("radio", { name: "4" })).toBeDisabled();
+
+    await user.click(screen.getByRole("radio", { name: "4" })); // attempt to change answer
+    // "4" still shows as the correct option (green), but wasn't selected —
+    // the original wrong pick ("3") stands, so the score doesn't change.
+    expect(screen.getByRole("radio", { name: "4" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByText("0 / 1 correct so far")).toBeInTheDocument();
+  });
+
+  it("shows a live running score that becomes the final score once every question is answered", async () => {
     vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
     const user = userEvent.setup();
 
@@ -141,20 +167,14 @@ describe("QuizView", () => {
     await screen.findByText(/what is 2 \+ 2\?/i);
 
     await user.click(screen.getByRole("radio", { name: "4" })); // correct
-    await user.click(screen.getByRole("button", { name: /^submit$/i }));
-    await user.click(screen.getByRole("button", { name: /next question/i }));
-
-    expect(await screen.findByText(/what is the capital of france\?/i)).toBeInTheDocument();
-    expect(screen.getByText("Question 2 of 2")).toBeInTheDocument();
+    expect(screen.getByText("1 / 1 correct so far")).toBeInTheDocument();
 
     await user.click(screen.getByRole("radio", { name: "Berlin" })); // wrong
-    await user.click(screen.getByRole("button", { name: /^submit$/i }));
-    await user.click(screen.getByRole("button", { name: /see results/i }));
-
-    expect(await screen.findByText("1 / 2 correct")).toBeInTheDocument();
+    expect(screen.getByText("Quiz complete")).toBeInTheDocument();
+    expect(screen.getByText("1 / 2 correct")).toBeInTheDocument();
   });
 
-  it("retake resets to question one without calling the API again", async () => {
+  it("retake clears every answer without calling the API again", async () => {
     vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
     const generateSpy = vi.spyOn(api, "generateNotebookQuiz");
     const user = userEvent.setup();
@@ -163,53 +183,17 @@ describe("QuizView", () => {
     await screen.findByText(/what is 2 \+ 2\?/i);
 
     await user.click(screen.getByRole("radio", { name: "4" }));
-    await user.click(screen.getByRole("button", { name: /^submit$/i }));
-    await user.click(screen.getByRole("button", { name: /next question/i }));
     await user.click(screen.getByRole("radio", { name: "Paris" }));
-    await user.click(screen.getByRole("button", { name: /^submit$/i }));
-    await user.click(screen.getByRole("button", { name: /see results/i }));
     await screen.findByText("2 / 2 correct");
 
     await user.click(screen.getByRole("button", { name: /retake/i }));
 
-    expect(screen.getByText(/what is 2 \+ 2\?/i)).toBeInTheDocument();
-    expect(screen.getByText("Question 1 of 2")).toBeInTheDocument();
+    expect(screen.getByText("0 of 2 answered")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "4" })).not.toBeDisabled();
     expect(generateSpy).not.toHaveBeenCalled();
   });
 
-  it("'New questions' from the results screen reopens the setup form", async () => {
-    vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
-    const user = userEvent.setup();
-
-    render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
-    await screen.findByText(/what is 2 \+ 2\?/i);
-
-    await user.click(screen.getByRole("radio", { name: "4" }));
-    await user.click(screen.getByRole("button", { name: /^submit$/i }));
-    await user.click(screen.getByRole("button", { name: /next question/i }));
-    await user.click(screen.getByRole("radio", { name: "Paris" }));
-    await user.click(screen.getByRole("button", { name: /^submit$/i }));
-    await user.click(screen.getByRole("button", { name: /see results/i }));
-    await screen.findByText("2 / 2 correct");
-
-    await user.click(screen.getByRole("button", { name: /new questions/i }));
-
-    expect(await screen.findByText(/set up your quiz/i)).toBeInTheDocument();
-  });
-
-  it("'Reconfigure' mid-quiz reopens the setup form without losing the old quiz", async () => {
-    vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
-    const user = userEvent.setup();
-
-    render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
-    await screen.findByText(/what is 2 \+ 2\?/i);
-
-    await user.click(screen.getByRole("button", { name: /reconfigure/i }));
-
-    expect(await screen.findByText(/set up your quiz/i)).toBeInTheDocument();
-  });
-
-  it("submitting setup again after reconfiguring calls the API with new options", async () => {
+  it("'New questions' reopens the setup form before generating anything new", async () => {
     vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
     vi.spyOn(api, "generateNotebookQuiz").mockResolvedValue(makeQuiz({ status: "generating" }));
     const user = userEvent.setup();
@@ -217,8 +201,11 @@ describe("QuizView", () => {
     render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
     await screen.findByText(/what is 2 \+ 2\?/i);
 
-    await user.click(screen.getByRole("button", { name: /reconfigure/i }));
-    await screen.findByText(/set up your quiz/i);
+    await user.click(screen.getByRole("button", { name: /new questions/i }));
+
+    expect(await screen.findByText(/set up your quiz/i)).toBeInTheDocument();
+    expect(api.generateNotebookQuiz).not.toHaveBeenCalled();
+
     await user.click(screen.getByRole("button", { name: /generate quiz/i }));
 
     await waitFor(() =>
