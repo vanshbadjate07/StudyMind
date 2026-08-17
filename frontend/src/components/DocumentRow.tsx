@@ -1,20 +1,34 @@
 import type { DocumentRecord } from "../lib/api";
 import { DocumentStatusBadge } from "./DocumentStatusBadge";
-import { OverviewPanel } from "./OverviewPanel";
 
 interface DocumentRowProps {
   document: DocumentRecord;
   summary: string | null;
+  selected: boolean;
+  onSelect: () => void;
   onDeleteClick: () => void;
 }
 
-export function DocumentRow({ document, summary, onDeleteClick }: DocumentRowProps) {
+export function DocumentRow({ document, summary, selected, onSelect, onDeleteClick }: DocumentRowProps) {
   const isFailed = document.status === "failed";
-  const isReady = document.status === "ready";
 
   return (
     <li>
-      <div className="flex items-start gap-4 p-4">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onSelect}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect();
+          }
+        }}
+        aria-pressed={selected}
+        className={`flex cursor-pointer items-start gap-3 p-3 transition-colors ${
+          selected ? "bg-brand-subtle" : "hover:bg-paper"
+        }`}
+      >
         <DocumentIcon failed={isFailed} />
         <div className="min-w-0 flex-1 pt-0.5">
           <p className="truncate text-sm font-medium text-ink">{document.filename}</p>
@@ -24,19 +38,21 @@ export function DocumentRow({ document, summary, onDeleteClick }: DocumentRowPro
             </p>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-3 pt-0.5">
+        <div className="flex shrink-0 items-center gap-2 pt-0.5">
           <DocumentStatusBadge status={document.status} />
           <button
             type="button"
-            onClick={onDeleteClick}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDeleteClick();
+            }}
             aria-label={`Delete ${document.filename}`}
-            className="rounded-lg p-2 text-ink-faint transition-colors hover:bg-paper hover:text-status-failed"
+            className="rounded-lg p-1.5 text-ink-faint transition-colors hover:bg-surface hover:text-status-failed"
           >
             <TrashIcon />
           </button>
         </div>
       </div>
-      {isReady && <OverviewPanel documentId={document.id} />}
     </li>
   );
 }
@@ -44,7 +60,7 @@ export function DocumentRow({ document, summary, onDeleteClick }: DocumentRowPro
 function DocumentIcon({ failed }: { failed: boolean }) {
   return (
     <span
-      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
         failed ? "bg-status-failed-subtle" : "bg-brand-subtle"
       }`}
     >
@@ -54,7 +70,7 @@ function DocumentIcon({ failed }: { failed: boolean }) {
         fill="none"
         stroke="currentColor"
         strokeWidth={1.5}
-        className={`h-5 w-5 ${failed ? "text-status-failed" : "text-brand-ink"}`}
+        className={`h-4 w-4 ${failed ? "text-status-failed" : "text-brand-ink"}`}
       >
         <path
           strokeLinecap="round"

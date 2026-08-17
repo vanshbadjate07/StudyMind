@@ -8,10 +8,10 @@ function App() {
   const { documents, isLoading, error, addDocument, removeDocument } = useDocuments();
 
   return (
-    <div className="flex min-h-screen overflow-x-hidden bg-paper">
+    <div className="flex h-screen overflow-hidden bg-paper">
       <Sidebar />
 
-      <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
         <header className="flex items-center gap-2.5 border-b border-line bg-surface px-6 py-4 lg:hidden">
           <Logo />
           <div>
@@ -20,7 +20,7 @@ function App() {
           </div>
         </header>
 
-        <main className="mx-auto max-w-3xl px-6 py-10 lg:px-12">
+        <main className="mx-auto w-full max-w-3xl px-6 py-10 lg:px-12">
           <div className="mb-8">
             <p className="text-xs font-semibold tracking-wide text-brand uppercase">Workspace</p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight text-ink">Documents</h1>
@@ -35,27 +35,28 @@ function App() {
             <HowItWorks />
           </div>
 
-          <section className="mb-10">
+          <section>
             <h2 className="text-sm font-semibold tracking-tight text-ink">Upload a document</h2>
             <p className="mt-1 mb-4 text-xs text-ink-muted">
               PDF only for now. More formats are on the way.
             </p>
             <UploadDropzone onUploaded={addDocument} />
           </section>
-
-          <section>
-            <h2 className="text-sm font-semibold tracking-tight text-ink">Your documents</h2>
-            <p className="mt-1 mb-4 text-xs text-ink-muted">
-              Processing runs in the background, and this list updates on its own.
-            </p>
-            {error && (
-              <p role="alert" className="mb-4 text-sm text-status-failed">
-                {error}
-              </p>
-            )}
-            <DocumentList documents={documents} isLoading={isLoading} onDeleted={removeDocument} />
-          </section>
         </main>
+
+        <section className="mx-auto w-full max-w-5xl px-6 pb-10 lg:px-12">
+          <h2 className="text-sm font-semibold tracking-tight text-ink">Your documents</h2>
+          <p className="mt-1 mb-4 text-xs text-ink-muted">
+            Select a document to see its overview. Add as many resources as you're studying
+            from.
+          </p>
+          {error && (
+            <p role="alert" className="mb-4 text-sm text-status-failed">
+              {error}
+            </p>
+          )}
+          <DocumentList documents={documents} isLoading={isLoading} onDeleted={removeDocument} />
+        </section>
       </div>
     </div>
   );

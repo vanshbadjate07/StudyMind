@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiError, deleteDocument, type DocumentRecord } from "../lib/api";
 import { describeErrorReason } from "../lib/errorMessages";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { DocumentRow } from "./DocumentRow";
+import { OverviewDetailPane } from "./OverviewDetailPane";
 
 interface DocumentListProps {
   documents: DocumentRecord[];
@@ -34,11 +35,19 @@ function summarize(document: DocumentRecord): string | null {
 }
 
 export function DocumentList({ documents, isLoading, onDeleted }: DocumentListProps) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  useEffect(() => {
+    if (selectedId !== null && documents.some((doc) => doc.id === selectedId)) return;
+    const mostRecentReady = documents.find((doc) => doc.status === "ready");
+    setSelectedId(mostRecentReady?.id ?? documents[0]?.id ?? null);
+  }, [documents, selectedId]);
+
   const pendingDeleteDoc = documents.find((doc) => doc.id === pendingDeleteId) ?? null;
+  const selectedDocument = documents.find((doc) => doc.id === selectedId) ?? null;
 
   const confirmDelete = async () => {
     if (!pendingDeleteId) return;
@@ -72,19 +81,29 @@ export function DocumentList({ documents, isLoading, onDeleted }: DocumentListPr
 
   return (
     <>
-      <ul role="list" className="divide-y divide-line rounded-xl border border-line bg-surface">
-        {documents.map((document) => (
-          <DocumentRow
-            key={document.id}
-            document={document}
-            summary={summarize(document)}
-            onDeleteClick={() => {
-              setDeleteError(null);
-              setPendingDeleteId(document.id);
-            }}
-          />
-        ))}
-      </ul>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">
+        <div className="h-[60vh] overflow-y-auto rounded-xl border border-line bg-surface">
+          <ul role="list" className="divide-y divide-line">
+            {documents.map((document) => (
+              <DocumentRow
+                key={document.id}
+                document={document}
+                summary={summarize(document)}
+                selected={document.id === selectedId}
+                onSelect={() => setSelectedId(document.id)}
+                onDeleteClick={() => {
+                  setDeleteError(null);
+                  setPendingDeleteId(document.id);
+                }}
+              />
+            ))}
+          </ul>
+        </div>
+
+        <div className="h-[60vh] overflow-y-auto rounded-xl border border-line bg-surface">
+          <OverviewDetailPane document={selectedDocument} />
+        </div>
+      </div>
 
       {deleteError && (
         <p role="alert" className="mt-3 text-sm text-status-failed">
