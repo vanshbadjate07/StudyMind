@@ -45,7 +45,7 @@ describe("QuizView", () => {
     expect(screen.queryByRole("button", { name: /generate quiz/i })).not.toBeInTheDocument();
   });
 
-  it("shows the setup form when there are documents but no quiz yet", async () => {
+  it("shows the setup form, defaulted to 8 mixed-difficulty questions", async () => {
     vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(null);
 
     render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
@@ -53,30 +53,26 @@ describe("QuizView", () => {
     expect(await screen.findByText(/set up your quiz/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/number of questions/i)).toHaveValue(8);
     expect(screen.getByRole("button", { name: /^mixed/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/generates 8 mixed-difficulty questions/i)).toBeInTheDocument();
   });
 
-  it("submits the chosen customization options to generate the quiz", async () => {
+  it("stepper buttons and preset chips both adjust the question count, reflected in the summary", async () => {
     vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(null);
-    vi.spyOn(api, "generateNotebookQuiz").mockResolvedValue(makeQuiz({ status: "generating" }));
     const user = userEvent.setup();
 
     render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
-    await screen.findByText(/set up your quiz/i);
+    const countInput = await screen.findByLabelText(/number of questions/i);
 
-    const countInput = screen.getByLabelText(/number of questions/i);
-    await user.clear(countInput);
-    await user.type(countInput, "5");
-    await user.click(screen.getByRole("button", { name: /^hard/i }));
-    await user.type(screen.getByLabelText(/focus on/i), "neural networks");
-    await user.click(screen.getByLabelText(/general knowledge/i));
-    await user.click(screen.getByRole("button", { name: /generate quiz/i }));
+    await user.click(screen.getByRole("button", { name: /increase question count/i }));
+    expect(countInput).toHaveValue(9);
 
-    expect(api.generateNotebookQuiz).toHaveBeenCalledWith("nb-1", {
-      question_count: 5,
-      difficulty: "hard",
-      allow_general_knowledge: true,
-      focus: "neural networks",
-    });
+    await user.click(screen.getByRole("button", { name: /decrease question count/i }));
+    await user.click(screen.getByRole("button", { name: /decrease question count/i }));
+    expect(countInput).toHaveValue(7);
+
+    await user.click(screen.getByRole("button", { name: "15" }));
+    expect(countInput).toHaveValue(15);
+    expect(screen.getByText(/generates 15 mixed-difficulty questions/i)).toBeInTheDocument();
   });
 
   it("clamps the question count to the allowed range on blur", async () => {
@@ -91,6 +87,28 @@ describe("QuizView", () => {
     await user.tab();
 
     expect(countInput).toHaveValue(20);
+  });
+
+  it("submits the chosen customization options to generate the quiz", async () => {
+    vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(null);
+    vi.spyOn(api, "generateNotebookQuiz").mockResolvedValue(makeQuiz({ status: "generating" }));
+    const user = userEvent.setup();
+
+    render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
+    await screen.findByText(/set up your quiz/i);
+
+    await user.click(screen.getByRole("button", { name: "5" }));
+    await user.click(screen.getByRole("button", { name: /^hard/i }));
+    await user.type(screen.getByLabelText(/focus on/i), "neural networks");
+    await user.click(screen.getByRole("switch", { name: /allow general knowledge/i }));
+    await user.click(screen.getByRole("button", { name: /generate quiz/i }));
+
+    expect(api.generateNotebookQuiz).toHaveBeenCalledWith("nb-1", {
+      question_count: 5,
+      difficulty: "hard",
+      allow_general_knowledge: true,
+      focus: "neural networks",
+    });
   });
 
   it("shows an error with a retry that reopens setup when generation failed", async () => {
@@ -108,58 +126,51 @@ describe("QuizView", () => {
     expect(await screen.findByText(/set up your quiz/i)).toBeInTheDocument();
   });
 
-  it("shows every question at once", async () => {
+  it("shows every question at once, ungraded until each is individually submitted", async () => {
     vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
+    const user = userEvent.setup();
 
     render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
+    await screen.findByText(/what is 2 \+ 2\?/i);
 
-    expect(await screen.findByText(/what is 2 \+ 2\?/i)).toBeInTheDocument();
     expect(screen.getByText(/what is the capital of france\?/i)).toBeInTheDocument();
     expect(screen.getAllByRole("radio")).toHaveLength(8);
     expect(screen.getByText("0 of 2 answered")).toBeInTheDocument();
+
+    const submitButtons = screen.getAllByRole("button", { name: /submit answer/i });
+    expect(submitButtons).toHaveLength(2);
+    expect(submitButtons[0]).toBeDisabled();
+
+    // Selecting an option does not grade it by itself.
+    await user.click(screen.getByRole("radio", { name: "4" }));
+    expect(screen.queryByText("2 + 2 = 4.")).not.toBeInTheDocument();
+    expect(screen.getByText("0 of 2 answered")).toBeInTheDocument();
+    expect(submitButtons[0]).toBeEnabled();
   });
 
-  it("grades a question the instant an option is selected, with no separate submit step", async () => {
+  it("lets you change your mind before submitting, then locks the answer in on submit", async () => {
     vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
     const user = userEvent.setup();
 
     render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
     await screen.findByText(/what is 2 \+ 2\?/i);
 
-    expect(screen.queryByRole("button", { name: /^submit$/i })).not.toBeInTheDocument();
-    expect(screen.queryByText("2 + 2 = 4.")).not.toBeInTheDocument();
-
+    await user.click(screen.getByRole("radio", { name: "3" })); // change mind before submitting
     await user.click(screen.getByRole("radio", { name: "4" }));
+    expect(screen.getByRole("radio", { name: "4" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "3" })).toHaveAttribute("aria-checked", "false");
 
-    // Graded immediately — no submit click needed.
+    const [submitFirst] = screen.getAllByRole("button", { name: /submit answer/i });
+    await user.click(submitFirst);
+
     expect(screen.getByText("2 + 2 = 4.")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "4" })).toHaveClass("border-status-ready");
+    expect(screen.getByRole("radio", { name: "3" })).toBeDisabled();
     expect(screen.getByText("1 of 2 answered")).toBeInTheDocument();
     expect(screen.getByText("1 / 1 correct so far")).toBeInTheDocument();
-
-    // The other question is untouched and still answerable.
-    expect(screen.getByRole("radio", { name: "Paris" })).not.toBeDisabled();
   });
 
-  it("locks in the first choice — clicking another option afterward does nothing", async () => {
-    vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
-    const user = userEvent.setup();
-
-    render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
-    await screen.findByText(/what is 2 \+ 2\?/i);
-
-    await user.click(screen.getByRole("radio", { name: "3" })); // wrong, locks in
-    expect(screen.getByRole("radio", { name: "3" })).toHaveClass("border-status-failed");
-    expect(screen.getByRole("radio", { name: "4" })).toBeDisabled();
-
-    await user.click(screen.getByRole("radio", { name: "4" })); // attempt to change answer
-    // "4" still shows as the correct option (green), but wasn't selected —
-    // the original wrong pick ("3") stands, so the score doesn't change.
-    expect(screen.getByRole("radio", { name: "4" })).toHaveAttribute("aria-checked", "false");
-    expect(screen.getByText("0 / 1 correct so far")).toBeInTheDocument();
-  });
-
-  it("shows a live running score that becomes the final score once every question is answered", async () => {
+  it("shows a live running score that becomes the final score once every question is submitted", async () => {
     vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
     const user = userEvent.setup();
 
@@ -167,9 +178,12 @@ describe("QuizView", () => {
     await screen.findByText(/what is 2 \+ 2\?/i);
 
     await user.click(screen.getByRole("radio", { name: "4" })); // correct
+    await user.click(screen.getAllByRole("button", { name: /submit answer/i })[0]);
     expect(screen.getByText("1 / 1 correct so far")).toBeInTheDocument();
 
     await user.click(screen.getByRole("radio", { name: "Berlin" })); // wrong
+    await user.click(screen.getAllByRole("button", { name: /submit answer/i })[0]);
+
     expect(screen.getByText("Quiz complete")).toBeInTheDocument();
     expect(screen.getByText("1 / 2 correct")).toBeInTheDocument();
   });
@@ -183,13 +197,16 @@ describe("QuizView", () => {
     await screen.findByText(/what is 2 \+ 2\?/i);
 
     await user.click(screen.getByRole("radio", { name: "4" }));
+    await user.click(screen.getAllByRole("button", { name: /submit answer/i })[0]);
     await user.click(screen.getByRole("radio", { name: "Paris" }));
+    await user.click(screen.getAllByRole("button", { name: /submit answer/i })[0]);
     await screen.findByText("2 / 2 correct");
 
     await user.click(screen.getByRole("button", { name: /retake/i }));
 
     expect(screen.getByText("0 of 2 answered")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "4" })).not.toBeDisabled();
+    expect(screen.getAllByRole("button", { name: /submit answer/i })[0]).toBeDisabled();
     expect(generateSpy).not.toHaveBeenCalled();
   });
 
@@ -214,5 +231,54 @@ describe("QuizView", () => {
         expect.objectContaining({ question_count: 8, difficulty: "mixed" }),
       ),
     );
+  });
+
+  it("shuffles question order when the setup toggle is on", async () => {
+    const threeQuestionQuiz = makeQuiz({
+      questions: [
+        { question: "Question Alpha", options: ["a", "b", "c", "d"], correct_index: 0, explanation: "e" },
+        { question: "Question Beta", options: ["a", "b", "c", "d"], correct_index: 0, explanation: "e" },
+        { question: "Question Gamma", options: ["a", "b", "c", "d"], correct_index: 0, explanation: "e" },
+      ],
+    });
+    vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(null);
+    vi.spyOn(api, "generateNotebookQuiz").mockResolvedValue(threeQuestionQuiz);
+    // Fisher-Yates with Math.random() always 0 is a deterministic
+    // permutation: [Alpha, Beta, Gamma] -> [Beta, Gamma, Alpha].
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const user = userEvent.setup();
+
+    render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
+    await screen.findByText(/set up your quiz/i);
+
+    await user.click(screen.getByRole("switch", { name: /shuffle question order/i }));
+    await user.click(screen.getByRole("button", { name: /generate quiz/i }));
+
+    const rendered = await screen.findAllByText(/^\d\. Question (Alpha|Beta|Gamma)$/);
+    expect(rendered.map((el) => el.textContent)).toEqual([
+      "1. Question Beta",
+      "2. Question Gamma",
+      "3. Question Alpha",
+    ]);
+  });
+
+  it("keeps original question order when shuffle is off", async () => {
+    const threeQuestionQuiz = makeQuiz({
+      questions: [
+        { question: "Question Alpha", options: ["a", "b", "c", "d"], correct_index: 0, explanation: "e" },
+        { question: "Question Beta", options: ["a", "b", "c", "d"], correct_index: 0, explanation: "e" },
+        { question: "Question Gamma", options: ["a", "b", "c", "d"], correct_index: 0, explanation: "e" },
+      ],
+    });
+    vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(threeQuestionQuiz);
+
+    render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
+
+    const rendered = await screen.findAllByText(/^\d\. Question (Alpha|Beta|Gamma)$/);
+    expect(rendered.map((el) => el.textContent)).toEqual([
+      "1. Question Alpha",
+      "2. Question Beta",
+      "3. Question Gamma",
+    ]);
   });
 });
