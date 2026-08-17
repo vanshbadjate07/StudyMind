@@ -5,18 +5,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import db
 from app.db import get_session
 from app.models import Document, DocumentStatus, Notebook, Quiz, QuizStatus
-from app.schemas import QuizRead
+from app.schemas import QuizGenerateRequest, QuizRead
 from app.services.quiz_generation import generate_quiz
 
 router = APIRouter(prefix="/notebooks/{notebook_id}/quiz", tags=["quiz"])
 
 
-async def _run_quiz_generation(notebook_id: str) -> None:
+async def _run_quiz_generation(notebook_id: str, options: QuizGenerateRequest) -> None:
     # Accessed via the `db` module (not `from app.db import async_session_factory`)
     # so tests that monkeypatch `db.async_session_factory` are respected here —
     # see app/main.py's lifespan for the full explanation of this pattern.
     async with db.async_session_factory() as session:
-        await generate_quiz(notebook_id, session)
+        await generate_quiz(notebook_id, session, options=options)
 
 
 @router.get("", response_model=QuizRead)
@@ -36,8 +36,10 @@ async def get_quiz(notebook_id: str, session: AsyncSession = Depends(get_session
 async def generate_notebook_quiz(
     notebook_id: str,
     background_tasks: BackgroundTasks,
+    body: QuizGenerateRequest | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> QuizRead:
+    options = body or QuizGenerateRequest()
     notebook = await session.get(Notebook, notebook_id)
     if notebook is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notebook not found.")
@@ -70,6 +72,6 @@ async def generate_notebook_quiz(
     await session.commit()
     await session.refresh(quiz)
 
-    background_tasks.add_task(_run_quiz_generation, notebook_id)
+    background_tasks.add_task(_run_quiz_generation, notebook_id, options)
 
     return QuizRead.from_model(quiz)

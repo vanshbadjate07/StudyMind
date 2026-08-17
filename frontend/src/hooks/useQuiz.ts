@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, generateNotebookQuiz, getNotebookQuiz, type QuizRecord } from "../lib/api";
+import {
+  ApiError,
+  generateNotebookQuiz,
+  getNotebookQuiz,
+  type QuizGenerateOptions,
+  type QuizRecord,
+} from "../lib/api";
 
 const POLL_INTERVAL_MS = 1500;
 
@@ -80,14 +86,14 @@ export function useQuiz(notebookId: string) {
     };
   }, [notebookId, fetchOnce, scheduleNextPoll]);
 
-  const generate = useCallback(async () => {
+  const generate = useCallback(async (options: QuizGenerateOptions) => {
     const id = notebookId;
     const requestId = requestIdRef.current;
     setIsGenerating(true);
     setError(null);
     errorRef.current = null;
     try {
-      const record = await generateNotebookQuiz(id);
+      const record = await generateNotebookQuiz(id, options);
       if (requestId !== requestIdRef.current) return; // superseded by a notebook switch/unmount meanwhile
       quizRef.current = record;
       setQuiz(record);

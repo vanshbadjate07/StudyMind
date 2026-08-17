@@ -45,58 +45,95 @@ describe("QuizView", () => {
     expect(screen.queryByRole("button", { name: /generate quiz/i })).not.toBeInTheDocument();
   });
 
-  it("shows a generate button when there are documents but no quiz yet", async () => {
+  it("shows the setup form when there are documents but no quiz yet", async () => {
+    vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(null);
+
+    render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
+
+    expect(await screen.findByText(/set up your quiz/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/number of questions/i)).toHaveValue(8);
+    expect(screen.getByRole("button", { name: /^mixed/i })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("submits the chosen customization options to generate the quiz", async () => {
     vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(null);
     vi.spyOn(api, "generateNotebookQuiz").mockResolvedValue(makeQuiz({ status: "generating" }));
     const user = userEvent.setup();
 
     render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
-    await screen.findByRole("button", { name: /generate quiz/i });
+    await screen.findByText(/set up your quiz/i);
 
+    const countInput = screen.getByLabelText(/number of questions/i);
+    await user.clear(countInput);
+    await user.type(countInput, "5");
+    await user.click(screen.getByRole("button", { name: /^hard/i }));
+    await user.type(screen.getByLabelText(/focus on/i), "neural networks");
+    await user.click(screen.getByLabelText(/general knowledge/i));
     await user.click(screen.getByRole("button", { name: /generate quiz/i }));
 
-    expect(api.generateNotebookQuiz).toHaveBeenCalledWith("nb-1");
+    expect(api.generateNotebookQuiz).toHaveBeenCalledWith("nb-1", {
+      question_count: 5,
+      difficulty: "hard",
+      allow_general_knowledge: true,
+      focus: "neural networks",
+    });
   });
 
-  it("shows an error with a retry button when generation failed", async () => {
+  it("clamps the question count to the allowed range on blur", async () => {
+    vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(null);
+    const user = userEvent.setup();
+
+    render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
+    const countInput = await screen.findByLabelText(/number of questions/i);
+
+    await user.clear(countInput);
+    await user.type(countInput, "999");
+    await user.tab();
+
+    expect(countInput).toHaveValue(20);
+  });
+
+  it("shows an error with a retry that reopens setup when generation failed", async () => {
     vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(
       makeQuiz({ status: "failed", error_reason: "ollama_unreachable" }),
     );
+    const user = userEvent.setup();
 
     render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't reach the ai service/i);
-    expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /try again/i }));
+
+    expect(await screen.findByText(/set up your quiz/i)).toBeInTheDocument();
   });
 
-  it("renders every question with four options once the quiz is ready", async () => {
-    vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
-
-    render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
-
-    expect(await screen.findByText(/what is 2 \+ 2\?/i)).toBeInTheDocument();
-    expect(screen.getByText(/what is the capital of france\?/i)).toBeInTheDocument();
-    expect(screen.getAllByRole("radio")).toHaveLength(8);
-  });
-
-  it("disables Submit until every question is answered", async () => {
+  it("shows one question at a time and reveals the answer only after submitting", async () => {
     vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
     const user = userEvent.setup();
 
     render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
     await screen.findByText(/what is 2 \+ 2\?/i);
 
+    expect(screen.queryByText(/what is the capital of france\?/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Question 1 of 2")).toBeInTheDocument();
+
     const submit = screen.getByRole("button", { name: /^submit$/i });
     expect(submit).toBeDisabled();
 
     await user.click(screen.getByRole("radio", { name: "4" }));
-    expect(submit).toBeDisabled();
-
-    await user.click(screen.getByRole("radio", { name: "Paris" }));
     expect(submit).toBeEnabled();
+    expect(screen.queryByText("2 + 2 = 4.")).not.toBeInTheDocument();
+
+    await user.click(submit);
+
+    // Answer revealed immediately for this question, before moving on.
+    expect(screen.getByText("2 + 2 = 4.")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "4" })).toHaveClass("border-status-ready");
+    expect(screen.getByRole("button", { name: /next question/i })).toBeInTheDocument();
   });
 
-  it("scores the attempt and shows explanations after submitting", async () => {
+  it("advances to the next question and shows a final score at the end", async () => {
     vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
     const user = userEvent.setup();
 
@@ -104,15 +141,20 @@ describe("QuizView", () => {
     await screen.findByText(/what is 2 \+ 2\?/i);
 
     await user.click(screen.getByRole("radio", { name: "4" })); // correct
+    await user.click(screen.getByRole("button", { name: /^submit$/i }));
+    await user.click(screen.getByRole("button", { name: /next question/i }));
+
+    expect(await screen.findByText(/what is the capital of france\?/i)).toBeInTheDocument();
+    expect(screen.getByText("Question 2 of 2")).toBeInTheDocument();
+
     await user.click(screen.getByRole("radio", { name: "Berlin" })); // wrong
     await user.click(screen.getByRole("button", { name: /^submit$/i }));
+    await user.click(screen.getByRole("button", { name: /see results/i }));
 
     expect(await screen.findByText("1 / 2 correct")).toBeInTheDocument();
-    expect(screen.getByText("2 + 2 = 4.")).toBeInTheDocument();
-    expect(screen.getByText("Paris is the capital of France.")).toBeInTheDocument();
   });
 
-  it("retake resets the attempt without calling the API again", async () => {
+  it("retake resets to question one without calling the API again", async () => {
     vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
     const generateSpy = vi.spyOn(api, "generateNotebookQuiz");
     const user = userEvent.setup();
@@ -121,18 +163,53 @@ describe("QuizView", () => {
     await screen.findByText(/what is 2 \+ 2\?/i);
 
     await user.click(screen.getByRole("radio", { name: "4" }));
+    await user.click(screen.getByRole("button", { name: /^submit$/i }));
+    await user.click(screen.getByRole("button", { name: /next question/i }));
     await user.click(screen.getByRole("radio", { name: "Paris" }));
     await user.click(screen.getByRole("button", { name: /^submit$/i }));
+    await user.click(screen.getByRole("button", { name: /see results/i }));
     await screen.findByText("2 / 2 correct");
 
     await user.click(screen.getByRole("button", { name: /retake/i }));
 
-    expect(screen.queryByText("2 / 2 correct")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^submit$/i })).toBeDisabled();
+    expect(screen.getByText(/what is 2 \+ 2\?/i)).toBeInTheDocument();
+    expect(screen.getByText("Question 1 of 2")).toBeInTheDocument();
     expect(generateSpy).not.toHaveBeenCalled();
   });
 
-  it("'New questions' regenerates the quiz", async () => {
+  it("'New questions' from the results screen reopens the setup form", async () => {
+    vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
+    const user = userEvent.setup();
+
+    render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
+    await screen.findByText(/what is 2 \+ 2\?/i);
+
+    await user.click(screen.getByRole("radio", { name: "4" }));
+    await user.click(screen.getByRole("button", { name: /^submit$/i }));
+    await user.click(screen.getByRole("button", { name: /next question/i }));
+    await user.click(screen.getByRole("radio", { name: "Paris" }));
+    await user.click(screen.getByRole("button", { name: /^submit$/i }));
+    await user.click(screen.getByRole("button", { name: /see results/i }));
+    await screen.findByText("2 / 2 correct");
+
+    await user.click(screen.getByRole("button", { name: /new questions/i }));
+
+    expect(await screen.findByText(/set up your quiz/i)).toBeInTheDocument();
+  });
+
+  it("'Reconfigure' mid-quiz reopens the setup form without losing the old quiz", async () => {
+    vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
+    const user = userEvent.setup();
+
+    render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
+    await screen.findByText(/what is 2 \+ 2\?/i);
+
+    await user.click(screen.getByRole("button", { name: /reconfigure/i }));
+
+    expect(await screen.findByText(/set up your quiz/i)).toBeInTheDocument();
+  });
+
+  it("submitting setup again after reconfiguring calls the API with new options", async () => {
     vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(makeQuiz());
     vi.spyOn(api, "generateNotebookQuiz").mockResolvedValue(makeQuiz({ status: "generating" }));
     const user = userEvent.setup();
@@ -140,8 +217,15 @@ describe("QuizView", () => {
     render(<QuizView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
     await screen.findByText(/what is 2 \+ 2\?/i);
 
-    await user.click(screen.getByRole("button", { name: /new questions/i }));
+    await user.click(screen.getByRole("button", { name: /reconfigure/i }));
+    await screen.findByText(/set up your quiz/i);
+    await user.click(screen.getByRole("button", { name: /generate quiz/i }));
 
-    await waitFor(() => expect(api.generateNotebookQuiz).toHaveBeenCalledWith("nb-1"));
+    await waitFor(() =>
+      expect(api.generateNotebookQuiz).toHaveBeenCalledWith(
+        "nb-1",
+        expect.objectContaining({ question_count: 8, difficulty: "mixed" }),
+      ),
+    );
   });
 });

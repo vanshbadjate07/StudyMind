@@ -1,7 +1,8 @@
 import json
 from datetime import UTC, datetime
+from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from app.models import (
     ChatMessage,
@@ -134,6 +135,29 @@ class OverviewRead(TimestampedModel):
             created_at=overview.created_at,
             updated_at=overview.updated_at,
         )
+
+
+class QuizDifficulty(str, Enum):
+    EASY = "easy"
+    MEDIUM = "medium"
+    HARD = "hard"
+    MIXED = "mixed"
+
+
+class QuizGenerateRequest(BaseModel):
+    question_count: int = Field(default=8, ge=3, le=20)
+    difficulty: QuizDifficulty = QuizDifficulty.MIXED
+    # Off by default: matches the PRD's "answerable directly from the
+    # material" baseline. On is an explicit opt-in to let the model round
+    # out thin material with its own general knowledge, the same "off by
+    # default, explicit toggle" pattern as chat's internet mode.
+    allow_general_knowledge: bool = False
+    focus: str | None = Field(default=None, max_length=200)
+
+    @field_validator("focus")
+    @classmethod
+    def _blank_focus_is_none(cls, value: str | None) -> str | None:
+        return value.strip() or None if value is not None else None
 
 
 class QuizQuestionResult(BaseModel):

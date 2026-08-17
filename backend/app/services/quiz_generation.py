@@ -8,16 +8,37 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.errors import QuizGenerationError
 from app.models import Chunk, Document, DocumentStatus, Notebook, Quiz, QuizStatus
-from app.schemas import QuizGenerationResult, QuizQuestionResult
+from app.schemas import QuizDifficulty, QuizGenerateRequest, QuizGenerationResult, QuizQuestionResult
 from app.services.ollama_client import OllamaClient, OllamaTimeoutError, OllamaUnreachableError
 
 MAX_RETRIES = 2
 
+DEFAULT_OPTIONS = QuizGenerateRequest()
+
+_DIFFICULTY_CLAUSES: dict[QuizDifficulty, str] = {
+    QuizDifficulty.EASY: (
+        " Keep every question straightforward — testing recall of a clearly-stated "
+        "fact, term, or definition, not multi-step reasoning."
+    ),
+    QuizDifficulty.MEDIUM: (
+        " Mix in questions that require connecting two related ideas from the "
+        "material, not just recalling a single stated fact."
+    ),
+    QuizDifficulty.HARD: (
+        " Favor questions that require applying or reasoning about the material — "
+        "working through an example, comparing two concepts, or spotting a subtle "
+        "distinction — rather than recalling a fact stated outright."
+    ),
+    QuizDifficulty.MIXED: (
+        " Vary the difficulty across questions — some straightforward recall, some "
+        "that require connecting ideas or reasoning about the material."
+    ),
+}
+
 QUIZ_PROMPT_TEMPLATE = (
     "You are writing a multiple-choice quiz to test understanding of this "
-    "study material. Write exactly {count} questions. Every question must be "
-    "answerable directly from the material below — do not test outside "
-    "knowledge, and do not invent facts the material doesn't state.\n\n"
+    "study material. Write exactly {count} questions.{knowledge_clause}"
+    "{difficulty_clause}{focus_clause}\n\n"
     "Respond with ONLY a JSON object matching this exact shape: "
     '{{"questions": [{{"question": "string", '
     '"options": ["string", "string", "string", "string"], '
@@ -32,10 +53,36 @@ QUIZ_PROMPT_TEMPLATE = (
 )
 
 
+def _knowledge_clause(allow_general_knowledge: bool) -> str:
+    if allow_general_knowledge:
+        return (
+            " Prefer the material below, but where it's thin you may draw on your "
+            "own general knowledge of the subject to round out the quiz — just "
+            "keep every question relevant to what this material covers."
+        )
+    return (
+        " Every question must be answerable directly from the material below — "
+        "do not test outside knowledge, and do not invent facts the material "
+        "doesn't state."
+    )
+
+
+def _focus_clause(focus: str | None) -> str:
+    if not focus:
+        return ""
+    return (
+        f" Focus especially on: {focus}. If a given excerpt isn't really about "
+        "that focus, write good general questions from it instead of forcing an "
+        "unrelated connection."
+    )
+
+
 async def generate_quiz(
     notebook_id: str,
     session: AsyncSession,
     client: OllamaClient | None = None,
+    *,
+    options: QuizGenerateRequest = DEFAULT_OPTIONS,
 ) -> None:
     """Runs section-building -> per-section question generation for one
     notebook's quiz, always resolving its Quiz row to READY or FAILED. Never
@@ -50,7 +97,10 @@ async def generate_quiz(
     lock the way overview needs one."""
     try:
         await _generate_quiz_body(
-            notebook_id, session, client or OllamaClient(timeout=settings.quiz_llm_timeout_seconds)
+            notebook_id,
+            session,
+            client or OllamaClient(timeout=settings.quiz_llm_timeout_seconds),
+            options,
         )
     except Exception as exc:
         try:
@@ -59,7 +109,9 @@ async def generate_quiz(
             pass
 
 
-async def _generate_quiz_body(notebook_id: str, session: AsyncSession, client: OllamaClient) -> None:
+async def _generate_quiz_body(
+    notebook_id: str, session: AsyncSession, client: OllamaClient, options: QuizGenerateRequest
+) -> None:
     if await session.get(Notebook, notebook_id) is None:
         return
 
@@ -81,7 +133,7 @@ async def _generate_quiz_body(notebook_id: str, session: AsyncSession, client: O
         if not sections:
             raise QuizGenerationError("no_content", "Notebook has no ready documents to quiz on.")
 
-        questions = await _generate_questions(client, sections)
+        questions = await _generate_questions(client, sections, options)
         if not questions:
             raise QuizGenerationError("invalid_llm_response", "No valid questions were generated.")
 
@@ -126,10 +178,22 @@ def _build_sections(chunks: list[Chunk]) -> list[str]:
     return sections
 
 
-async def _generate_questions(client: OllamaClient, sections: list[str]) -> list[QuizQuestionResult]:
-    target = settings.quiz_question_count
+async def _generate_questions(
+    client: OllamaClient, sections: list[str], options: QuizGenerateRequest
+) -> list[QuizQuestionResult]:
+    target = options.question_count
+    knowledge_clause = _knowledge_clause(options.allow_general_knowledge)
+    difficulty_clause = _DIFFICULTY_CLAUSES[options.difficulty]
+    focus_clause = _focus_clause(options.focus)
+
     if len(sections) == 1:
-        prompt = QUIZ_PROMPT_TEMPLATE.format(count=target, text=sections[0])
+        prompt = QUIZ_PROMPT_TEMPLATE.format(
+            count=target,
+            knowledge_clause=knowledge_clause,
+            difficulty_clause=difficulty_clause,
+            focus_clause=focus_clause,
+            text=sections[0],
+        )
         result = await _call_with_retry(client, prompt, QuizGenerationResult)
         return result.questions[:target]
 
@@ -138,7 +202,13 @@ async def _generate_questions(client: OllamaClient, sections: list[str]) -> list
     per_section = max(1, -(-target // len(sections)))
     all_questions: list[QuizQuestionResult] = []
     for section in sections:
-        prompt = QUIZ_PROMPT_TEMPLATE.format(count=per_section, text=section)
+        prompt = QUIZ_PROMPT_TEMPLATE.format(
+            count=per_section,
+            knowledge_clause=knowledge_clause,
+            difficulty_clause=difficulty_clause,
+            focus_clause=focus_clause,
+            text=section,
+        )
         result = await _call_with_retry(client, prompt, QuizGenerationResult)
         all_questions.extend(result.questions)
     return all_questions[:target]

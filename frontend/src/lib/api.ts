@@ -36,6 +36,14 @@ export interface OverviewRecord {
 }
 
 export type QuizStatus = "pending" | "generating" | "ready" | "failed";
+export type QuizDifficulty = "easy" | "medium" | "hard" | "mixed";
+
+export interface QuizGenerateOptions {
+  question_count: number;
+  difficulty: QuizDifficulty;
+  allow_general_knowledge: boolean;
+  focus?: string;
+}
 
 export interface QuizQuestionRecord {
   question: string;
@@ -204,9 +212,14 @@ export async function getNotebookQuiz(notebookId: string): Promise<QuizRecord | 
   return handleResponse<QuizRecord>(response);
 }
 
-export async function generateNotebookQuiz(notebookId: string): Promise<QuizRecord> {
+export async function generateNotebookQuiz(
+  notebookId: string,
+  options: QuizGenerateOptions,
+): Promise<QuizRecord> {
   const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/quiz/generate`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(options),
   });
   return handleResponse<QuizRecord>(response);
 }

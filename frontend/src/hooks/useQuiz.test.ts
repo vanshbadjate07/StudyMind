@@ -94,11 +94,16 @@ describe("useQuiz", () => {
     expect(result.current.quiz).toBeNull();
 
     getSpy.mockResolvedValue(makeQuiz({ status: "ready" }));
+    const options: api.QuizGenerateOptions = {
+      question_count: 5,
+      difficulty: "hard",
+      allow_general_knowledge: false,
+    };
     await act(async () => {
-      await result.current.generate();
+      await result.current.generate(options);
     });
 
-    expect(generateSpy).toHaveBeenCalledWith("nb-1");
+    expect(generateSpy).toHaveBeenCalledWith("nb-1", options);
     expect(result.current.quiz?.status).toBe("generating");
 
     await act(async () => {
@@ -119,7 +124,7 @@ describe("useQuiz", () => {
     });
 
     await act(async () => {
-      await result.current.generate();
+      await result.current.generate({ question_count: 8, difficulty: "mixed", allow_general_knowledge: false });
     });
 
     expect(result.current.error).toBe("No ready documents in this notebook yet.");

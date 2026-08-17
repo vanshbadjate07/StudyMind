@@ -13,8 +13,10 @@ FIXTURES = Path(__file__).parent / "fixtures"
 class _FakeReadyClient:
     def __init__(self, question_count: int = 1) -> None:
         self._question_count = question_count
+        self.prompts: list[str] = []
 
     async def generate_json(self, prompt: str, *, temperature: float = 0.2) -> str:
+        self.prompts.append(prompt)
         questions = [
             {
                 "question": f"Question {i}?",
@@ -121,6 +123,61 @@ def test_generate_quiz_ready_with_questions_when_llm_succeeds(client: TestClient
     assert len(quiz["questions"]) == 3
     assert quiz["questions"][0]["question"] == "Question 0?"
     assert quiz["questions"][0]["options"] == ["A", "B", "C", "D"]
+
+
+def test_generate_quiz_passes_customization_options_to_the_prompt(client: TestClient, monkeypatch) -> None:
+    fake = _FakeReadyClient(question_count=5)
+    monkeypatch.setattr("app.services.quiz_generation.OllamaClient", lambda *a, **k: fake)
+
+    notebook_id = _create_notebook(client)
+    document_id = _upload(client, notebook_id, "normal.pdf")
+    _poll_document_settled(client, document_id)
+
+    response = client.post(
+        f"/notebooks/{notebook_id}/quiz/generate",
+        json={
+            "question_count": 5,
+            "difficulty": "hard",
+            "allow_general_knowledge": True,
+            "focus": "neural networks",
+        },
+    )
+    assert response.status_code == 202
+
+    quiz = _poll_quiz_settled(client, notebook_id)
+    assert quiz["status"] == "ready"
+    assert len(quiz["questions"]) == 5
+
+    prompt = fake.prompts[0].lower()
+    assert "exactly 5 questions" in prompt
+    assert "reasoning about the material" in prompt  # hard-difficulty clause
+    assert "own general knowledge" in prompt  # general-knowledge clause
+    assert "focus especially on: neural networks" in prompt
+
+
+def test_generate_quiz_rejects_out_of_range_question_count(client: TestClient) -> None:
+    notebook_id = _create_notebook(client)
+    document_id = _upload(client, notebook_id, "normal.pdf")
+    _poll_document_settled(client, document_id)
+
+    response = client.post(f"/notebooks/{notebook_id}/quiz/generate", json={"question_count": 1})
+    assert response.status_code == 422
+
+
+def test_generate_quiz_with_no_body_uses_defaults(client: TestClient, monkeypatch) -> None:
+    fake = _FakeReadyClient(question_count=1)
+    monkeypatch.setattr("app.services.quiz_generation.OllamaClient", lambda *a, **k: fake)
+
+    notebook_id = _create_notebook(client)
+    document_id = _upload(client, notebook_id, "normal.pdf")
+    _poll_document_settled(client, document_id)
+
+    response = client.post(f"/notebooks/{notebook_id}/quiz/generate")
+    assert response.status_code == 202
+
+    quiz = _poll_quiz_settled(client, notebook_id)
+    assert quiz["status"] == "ready"
+    assert "exactly 8 questions" in fake.prompts[0].lower()
 
 
 async def test_generate_quiz_returns_409_when_already_generating(client: TestClient) -> None:

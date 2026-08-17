@@ -1,6 +1,14 @@
 import { useState } from "react";
 import { useQuiz } from "../hooks/useQuiz";
+import type { QuizDifficulty, QuizGenerateOptions } from "../lib/api";
 import { describeErrorReason } from "../lib/errorMessages";
+
+const DEFAULT_OPTIONS: QuizGenerateOptions = {
+  question_count: 8,
+  difficulty: "mixed",
+  allow_general_knowledge: false,
+  focus: "",
+};
 
 interface QuizViewProps {
   notebookId: string;
@@ -10,6 +18,27 @@ interface QuizViewProps {
 
 export function QuizView({ notebookId, notebookName, hasDocuments }: QuizViewProps) {
   const { quiz, isLoading, error, isGenerating, generate } = useQuiz(notebookId);
+  // Not persisted server-side (generation params aren't part of the Quiz
+  // record) — kept here purely so reopening setup ("New questions") starts
+  // from what you picked last time instead of resetting to defaults.
+  const [lastOptions, setLastOptions] = useState<QuizGenerateOptions>(DEFAULT_OPTIONS);
+  // Setup is shown before the very first generation, and again whenever the
+  // user explicitly asks to reconfigure — never re-shown just because a poll
+  // tick re-ran, so it can't clobber an in-progress or completed attempt.
+  const [isConfiguring, setIsConfiguring] = useState(false);
+
+  const handleGenerate = (options: QuizGenerateOptions) => {
+    setLastOptions(options);
+    setIsConfiguring(false);
+    void generate(options);
+  };
+
+  // isGenerating excluded here so a click on "Generate" can't re-show setup
+  // during the gap between the call starting and `quiz` updating from it —
+  // without this, quiz===null (still true in that gap, pre-first-generation)
+  // would flash the form again right after submitting it.
+  const showSetup = !isLoading && !error && !isGenerating && (quiz === null || isConfiguring);
+  const isBusy = isGenerating || quiz?.status === "pending" || quiz?.status === "generating";
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -25,60 +54,35 @@ export function QuizView({ notebookId, notebookName, hasDocuments }: QuizViewPro
           {isLoading ? (
             <QuizSkeleton label="Loading quiz" />
           ) : error ? (
-            <ErrorState message={error} onRetry={() => void generate()} isRetrying={isGenerating} />
-          ) : quiz === null ? (
-            <EmptyState hasDocuments={hasDocuments} isGenerating={isGenerating} onGenerate={generate} />
-          ) : quiz.status === "pending" || quiz.status === "generating" ? (
+            <ErrorState message={error} onRetry={() => void generate(lastOptions)} isRetrying={isGenerating} />
+          ) : !hasDocuments ? (
+            <NoDocumentsState />
+          ) : showSetup ? (
+            <QuizSetupForm initial={lastOptions} isGenerating={isGenerating} onGenerate={handleGenerate} />
+          ) : isBusy ? (
             <QuizSkeleton label="Generating quiz" />
-          ) : quiz.status === "failed" ? (
+          ) : quiz?.status === "failed" ? (
             <ErrorState
               message={describeErrorReason(quiz.error_reason)}
-              onRetry={() => void generate()}
+              onRetry={() => setIsConfiguring(true)}
               isRetrying={isGenerating}
             />
-          ) : (
-            <QuizTaker
-              key={quiz.id}
-              questions={quiz.questions}
-              isRegenerating={isGenerating}
-              onRegenerate={generate}
-            />
-          )}
+          ) : quiz ? (
+            <QuizTaker key={quiz.id} questions={quiz.questions} onReconfigure={() => setIsConfiguring(true)} />
+          ) : null}
         </div>
       </div>
     </div>
   );
 }
 
-function EmptyState({
-  hasDocuments,
-  isGenerating,
-  onGenerate,
-}: {
-  hasDocuments: boolean;
-  isGenerating: boolean;
-  onGenerate: () => void;
-}) {
+function NoDocumentsState() {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-      <p className="text-sm font-medium text-ink">
-        {hasDocuments ? "Test what you know" : "No documents yet"}
-      </p>
+      <p className="text-sm font-medium text-ink">No documents yet</p>
       <p className="max-w-sm text-sm text-ink-muted">
-        {hasDocuments
-          ? "Generate a multiple-choice quiz grounded in this notebook's material."
-          : "Upload a document in the Documents tab first — a quiz needs something to be about."}
+        Upload a document in the Documents tab first — a quiz needs something to be about.
       </p>
-      {hasDocuments && (
-        <button
-          type="button"
-          onClick={() => void onGenerate()}
-          disabled={isGenerating}
-          className="mt-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
-        >
-          {isGenerating ? "Generating…" : "Generate quiz"}
-        </button>
-      )}
     </div>
   );
 }
@@ -109,6 +113,125 @@ function ErrorState({
   );
 }
 
+const DIFFICULTY_OPTIONS: { value: QuizDifficulty; label: string; description: string }[] = [
+  { value: "easy", label: "Easy", description: "Straightforward recall of stated facts." },
+  { value: "medium", label: "Medium", description: "Some connecting of related ideas." },
+  { value: "hard", label: "Hard", description: "Reasoning, comparisons, applying concepts." },
+  { value: "mixed", label: "Mixed", description: "A blend of all difficulty levels." },
+];
+
+const QUESTION_COUNT_MIN = 3;
+const QUESTION_COUNT_MAX = 20;
+
+function QuizSetupForm({
+  initial,
+  isGenerating,
+  onGenerate,
+}: {
+  initial: QuizGenerateOptions;
+  isGenerating: boolean;
+  onGenerate: (options: QuizGenerateOptions) => void;
+}) {
+  const [questionCount, setQuestionCount] = useState(initial.question_count);
+  const [difficulty, setDifficulty] = useState<QuizDifficulty>(initial.difficulty);
+  const [allowGeneralKnowledge, setAllowGeneralKnowledge] = useState(initial.allow_general_knowledge);
+  const [focus, setFocus] = useState(initial.focus ?? "");
+
+  const clampedCount = Math.min(QUESTION_COUNT_MAX, Math.max(QUESTION_COUNT_MIN, questionCount || QUESTION_COUNT_MIN));
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    onGenerate({
+      question_count: clampedCount,
+      difficulty,
+      allow_general_knowledge: allowGeneralKnowledge,
+      focus: focus.trim() || undefined,
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="rounded-xl border border-line bg-surface p-5">
+      <h2 className="text-sm font-semibold text-ink">Set up your quiz</h2>
+      <p className="mt-1 text-xs text-ink-muted">
+        Customize what gets generated from this notebook's material.
+      </p>
+
+      <div className="mt-4">
+        <label htmlFor="quiz-question-count" className="text-xs font-medium text-ink-muted">
+          Number of questions
+        </label>
+        <input
+          id="quiz-question-count"
+          type="number"
+          min={QUESTION_COUNT_MIN}
+          max={QUESTION_COUNT_MAX}
+          value={questionCount}
+          onChange={(event) => setQuestionCount(Number(event.target.value))}
+          onBlur={() => setQuestionCount(clampedCount)}
+          className="mt-1 w-24 rounded-lg border border-line px-3 py-1.5 text-sm text-ink focus:border-brand focus:outline-none"
+        />
+        <span className="ml-2 text-xs text-ink-faint">
+          ({QUESTION_COUNT_MIN}-{QUESTION_COUNT_MAX})
+        </span>
+      </div>
+
+      <div className="mt-4">
+        <p className="text-xs font-medium text-ink-muted">Difficulty</p>
+        <div className="mt-1.5 grid grid-cols-2 gap-2">
+          {DIFFICULTY_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setDifficulty(option.value)}
+              aria-pressed={difficulty === option.value}
+              className={`rounded-lg border p-2.5 text-left transition-colors ${
+                difficulty === option.value ? "border-brand bg-brand-subtle" : "border-line hover:bg-paper"
+              }`}
+            >
+              <p className="text-sm font-medium text-ink">{option.label}</p>
+              <p className="mt-0.5 text-xs text-ink-muted">{option.description}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <label htmlFor="quiz-focus" className="text-xs font-medium text-ink-muted">
+          Focus on (optional)
+        </label>
+        <input
+          id="quiz-focus"
+          type="text"
+          value={focus}
+          onChange={(event) => setFocus(event.target.value)}
+          maxLength={200}
+          placeholder="e.g. chapter 3, testing strategies"
+          className="mt-1 w-full rounded-lg border border-line px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-brand focus:outline-none"
+        />
+      </div>
+
+      <label className="mt-4 flex cursor-pointer items-start gap-2 text-xs text-ink-muted">
+        <input
+          type="checkbox"
+          checked={allowGeneralKnowledge}
+          onChange={(event) => setAllowGeneralKnowledge(event.target.checked)}
+          className="mt-0.5 h-3.5 w-3.5 rounded border-line-strong accent-brand"
+        />
+        Let the AI fill gaps with general knowledge where your material is thin (otherwise every
+        question is answerable strictly from what you've uploaded)
+      </label>
+
+      <button
+        type="submit"
+        disabled={isGenerating}
+        className="mt-5 w-full rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
+      >
+        {isGenerating ? "Generating…" : "Generate quiz"}
+      </button>
+    </form>
+  );
+}
+
 interface QuizQuestion {
   question: string;
   options: string[];
@@ -118,68 +241,53 @@ interface QuizQuestion {
 
 function QuizTaker({
   questions,
-  isRegenerating,
-  onRegenerate,
+  onReconfigure,
 }: {
   questions: QuizQuestion[];
-  isRegenerating: boolean;
-  onRegenerate: () => void;
+  onReconfigure: () => void;
 }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, number>>({});
-  const [submitted, setSubmitted] = useState(false);
+  const [revealed, setRevealed] = useState<Record<number, boolean>>({});
+  const [finished, setFinished] = useState(false);
 
-  const answeredCount = Object.keys(answers).length;
-  const allAnswered = answeredCount === questions.length;
-  const score = questions.reduce(
-    (total, q, i) => total + (answers[i] === q.correct_index ? 1 : 0),
-    0,
-  );
+  const current = questions[currentIndex];
+  const isRevealed = revealed[currentIndex] ?? false;
+  const selectedOption = answers[currentIndex];
+  const isLastQuestion = currentIndex === questions.length - 1;
+  const score = questions.reduce((total, q, i) => total + (answers[i] === q.correct_index ? 1 : 0), 0);
 
-  const selectAnswer = (questionIndex: number, optionIndex: number) => {
-    if (submitted) return;
-    setAnswers((prev) => ({ ...prev, [questionIndex]: optionIndex }));
+  const selectAnswer = (optionIndex: number) => {
+    if (isRevealed) return;
+    setAnswers((prev) => ({ ...prev, [currentIndex]: optionIndex }));
+  };
+
+  const submitCurrent = () => {
+    setRevealed((prev) => ({ ...prev, [currentIndex]: true }));
+  };
+
+  const goNext = () => {
+    if (isLastQuestion) {
+      setFinished(true);
+    } else {
+      setCurrentIndex((i) => i + 1);
+    }
   };
 
   const retake = () => {
+    setCurrentIndex(0);
     setAnswers({});
-    setSubmitted(false);
+    setRevealed({});
+    setFinished(false);
   };
 
-  return (
-    <div className="pb-10">
-      {submitted && (
-        <div className="mb-6 rounded-xl border border-line bg-surface p-4 text-center">
-          <p className="text-lg font-semibold text-ink">
-            {score} / {questions.length} correct
-          </p>
-        </div>
-      )}
-
-      <ol className="space-y-6">
-        {questions.map((q, questionIndex) => (
-          <li key={questionIndex} className="rounded-xl border border-line bg-surface p-4">
-            <p className="text-sm font-medium text-ink">{`${questionIndex + 1}. ${q.question}`}</p>
-            <div role="radiogroup" aria-label={`Question ${questionIndex + 1} options`} className="mt-3 space-y-2">
-              {q.options.map((option, optionIndex) => (
-                <QuizOption
-                  key={optionIndex}
-                  option={option}
-                  isSelected={answers[questionIndex] === optionIndex}
-                  isCorrect={optionIndex === q.correct_index}
-                  submitted={submitted}
-                  onSelect={() => selectAnswer(questionIndex, optionIndex)}
-                />
-              ))}
-            </div>
-            {submitted && (
-              <p className="mt-3 text-xs leading-relaxed text-ink-muted">{q.explanation}</p>
-            )}
-          </li>
-        ))}
-      </ol>
-
-      <div className="mt-6 flex items-center justify-between gap-3">
-        {submitted ? (
+  if (finished) {
+    return (
+      <div className="flex flex-col items-center gap-4 rounded-xl border border-line bg-surface p-8 text-center">
+        <p className="text-lg font-semibold text-ink">
+          {score} / {questions.length} correct
+        </p>
+        <div className="flex gap-2">
           <button
             type="button"
             onClick={retake}
@@ -187,31 +295,69 @@ function QuizTaker({
           >
             Retake
           </button>
-        ) : (
-          <div className="text-xs text-ink-muted">
-            {answeredCount} of {questions.length} answered
-          </div>
-        )}
-        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={onRegenerate}
-            disabled={isRegenerating}
-            className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-muted transition-colors hover:bg-paper hover:text-ink disabled:opacity-50"
+            onClick={onReconfigure}
+            className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover"
           >
-            {isRegenerating ? "Generating…" : "New questions"}
+            New questions
           </button>
-          {!submitted && (
-            <button
-              type="button"
-              onClick={() => setSubmitted(true)}
-              disabled={!allAnswered}
-              className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
-            >
-              Submit
-            </button>
-          )}
         </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pb-10">
+      <div className="mb-3 flex items-center justify-between text-xs text-ink-muted">
+        <span>
+          Question {currentIndex + 1} of {questions.length}
+        </span>
+        <button type="button" onClick={onReconfigure} className="text-ink-faint transition-colors hover:text-ink">
+          Reconfigure
+        </button>
+      </div>
+
+      <div className="rounded-xl border border-line bg-surface p-4">
+        <p className="text-sm font-medium text-ink">{current.question}</p>
+        <div
+          role="radiogroup"
+          aria-label={`Question ${currentIndex + 1} options`}
+          className="mt-3 space-y-2"
+        >
+          {current.options.map((option, optionIndex) => (
+            <QuizOption
+              key={optionIndex}
+              option={option}
+              isSelected={selectedOption === optionIndex}
+              isCorrect={optionIndex === current.correct_index}
+              revealed={isRevealed}
+              onSelect={() => selectAnswer(optionIndex)}
+            />
+          ))}
+        </div>
+        {isRevealed && <p className="mt-3 text-xs leading-relaxed text-ink-muted">{current.explanation}</p>}
+      </div>
+
+      <div className="mt-4 flex justify-end">
+        {!isRevealed ? (
+          <button
+            type="button"
+            onClick={submitCurrent}
+            disabled={selectedOption === undefined}
+            className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
+          >
+            Submit
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={goNext}
+            className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover"
+          >
+            {isLastQuestion ? "See results" : "Next question"}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -221,18 +367,18 @@ function QuizOption({
   option,
   isSelected,
   isCorrect,
-  submitted,
+  revealed,
   onSelect,
 }: {
   option: string;
   isSelected: boolean;
   isCorrect: boolean;
-  submitted: boolean;
+  revealed: boolean;
   onSelect: () => void;
 }) {
   let className =
     "flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-sm transition-colors ";
-  if (submitted) {
+  if (revealed) {
     if (isCorrect) {
       className += "border-status-ready bg-status-ready-subtle text-ink";
     } else if (isSelected) {
@@ -252,7 +398,7 @@ function QuizOption({
       role="radio"
       aria-checked={isSelected}
       onClick={onSelect}
-      disabled={submitted}
+      disabled={revealed}
       className={className}
     >
       <span

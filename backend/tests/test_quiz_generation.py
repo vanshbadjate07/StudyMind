@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.db import Base
 from app.models import Chunk, Document, DocumentStatus, Notebook, Quiz, QuizStatus
+from app.schemas import QuizDifficulty, QuizGenerateRequest
 from app.services.ollama_client import OllamaUnreachableError
 from app.services.quiz_generation import _build_sections, generate_quiz
 
@@ -152,20 +153,54 @@ class TestGenerateQuiz:
         row = await _get_quiz_row(session, notebook_id)
         assert row.status == QuizStatus.READY
 
-    async def test_question_count_is_capped_at_the_configured_target(
-        self, session: AsyncSession, monkeypatch
-    ) -> None:
-        monkeypatch.setattr("app.services.quiz_generation.settings.quiz_question_count", 2)
+    async def test_question_count_is_capped_at_the_requested_target(self, session: AsyncSession) -> None:
         notebook = await _create_notebook_with_ready_document(session, ["Some content."])
         notebook_id = notebook.id
-        response = json.dumps({"questions": [_question("Q1"), _question("Q2"), _question("Q3")]})
+        response = json.dumps(
+            {"questions": [_question("Q1"), _question("Q2"), _question("Q3"), _question("Q4")]}
+        )
+        client = ScriptedClient([response])
+
+        await generate_quiz(notebook_id, session, client, options=QuizGenerateRequest(question_count=3))
+
+        row = await _get_quiz_row(session, notebook_id)
+        questions = json.loads(row.questions_json)
+        assert len(questions) == 3
+
+    async def test_default_question_count_matches_the_settings_default(self, session: AsyncSession) -> None:
+        notebook = await _create_notebook_with_ready_document(session, ["Some content."])
+        notebook_id = notebook.id
+        response = json.dumps({"questions": [_question(f"Q{i}") for i in range(10)]})
         client = ScriptedClient([response])
 
         await generate_quiz(notebook_id, session, client)
 
         row = await _get_quiz_row(session, notebook_id)
         questions = json.loads(row.questions_json)
-        assert len(questions) == 2
+        assert len(questions) == 8  # QuizGenerateRequest's default question_count
+
+    async def test_difficulty_and_focus_and_general_knowledge_reach_the_prompt(
+        self, session: AsyncSession
+    ) -> None:
+        notebook = await _create_notebook_with_ready_document(session, ["Some content."])
+        notebook_id = notebook.id
+        client = ScriptedClient([json.dumps({"questions": [_question()]})])
+
+        await generate_quiz(
+            notebook_id,
+            session,
+            client,
+            options=QuizGenerateRequest(
+                difficulty=QuizDifficulty.HARD,
+                allow_general_knowledge=True,
+                focus="chapter 3",
+            ),
+        )
+
+        prompt = client.calls[0].lower()
+        assert "reasoning about the material" in prompt  # hard-difficulty clause
+        assert "own general knowledge" in prompt  # general-knowledge clause
+        assert "focus especially on: chapter 3" in prompt
 
     async def test_combines_chunks_from_multiple_documents_in_the_notebook(
         self, session: AsyncSession
