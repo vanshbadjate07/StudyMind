@@ -71,6 +71,24 @@ NO_MATCH_PROMPT_TEMPLATE = (
     "for a specific fact or detail the summary doesn't contain,{internet_instruction}"
 )
 
+# Unlike the removed NOT_COVERED_MESSAGE (a canned reply that stood in for a
+# real per-question answer even when material existed to answer from), this
+# is a fixed system message for one exact, fully deterministic state: zero
+# ready documents in the notebook at all, so there is nothing to generate an
+# answer *from* — the same category as DocumentList's "No documents yet"
+# empty state, not a hardcoded topic answer. It exists because instructing
+# the model not to answer from its own training knowledge turned out to be
+# unreliable on the small local model this app runs (qwen2.5:3b): asked
+# "what is MongoDB?" in a brand-new notebook with zero uploads and internet
+# mode off, it answered confidently from memory anyway, defeating the whole
+# point of the toggle. Skipping the LLM call entirely for this one state is
+# the only way to guarantee it can't happen — internet mode still bypasses
+# this and lets the model answer freely, since that's what the toggle is for.
+NO_DOCUMENTS_MESSAGE = (
+    "This notebook doesn't have any documents yet, so there's nothing for me to answer from. "
+    "Upload a PDF to get started, or turn on internet mode for general-knowledge answers instead."
+)
+
 MAX_CITATIONS = 5
 
 
@@ -157,15 +175,17 @@ async def ask_question(
     client: OllamaClient | None = None,
 ) -> ChatMessage:
     """Answers one question against a notebook's material, persisting both
-    the user's question and the assistant's reply. The LLM is always called —
-    there's no fixed canned reply — but what it's given and told to do depends
-    on retrieval quality: a specific-passage match (grounded, decided by
-    vector distance against a calibrated threshold, not by asking the LLM to
-    self-report) gets those excerpts and a strict "answer only from this"
-    instruction; anything else (a broad question, a greeting, or a genuine gap
-    in the material) gets the notebook's own overview as context plus an
-    honest-fallback instruction, so it can hold a normal conversation without
-    ever being able to invent facts that aren't in already-generated material.
+    the user's question and the assistant's reply. With at least one ready
+    document, the LLM is always called — there's no fixed canned reply — but
+    what it's given and told to do depends on retrieval quality: a
+    specific-passage match (grounded, decided by vector distance against a
+    calibrated threshold, not by asking the LLM to self-report) gets those
+    excerpts and a strict "answer only from this" instruction; anything else
+    (a broad question, a greeting, or a genuine gap in the material) gets the
+    notebook's own overview as context plus an honest-fallback instruction.
+    With zero ready documents and internet mode off, the LLM isn't called at
+    all (see NO_DOCUMENTS_MESSAGE) — that's the one case where trusting the
+    model's own restraint isn't good enough.
 
     Raises OllamaUnreachableError / OllamaTimeoutError if the LLM call fails —
     the caller decides how to surface that; the user's question is already
@@ -194,6 +214,15 @@ async def ask_question(
     )
     ready_documents = list(doc_result.scalars().all())
     filenames = {doc.id: doc.filename for doc in ready_documents}
+
+    if not ready_documents and not internet_mode:
+        assistant_message = ChatMessage(
+            notebook_id=notebook.id, role=ChatRole.ASSISTANT, content=NO_DOCUMENTS_MESSAGE
+        )
+        session.add(assistant_message)
+        await session.commit()
+        await session.refresh(assistant_message)
+        return assistant_message
 
     hits: list[VectorSearchResult] = []
     if ready_documents:

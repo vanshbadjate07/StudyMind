@@ -6,9 +6,10 @@ import type { ChatMessageRecord } from "../lib/api";
 interface ChatViewProps {
   notebookId: string;
   notebookName: string;
+  hasDocuments: boolean;
 }
 
-export function ChatView({ notebookId, notebookName }: ChatViewProps) {
+export function ChatView({ notebookId, notebookName, hasDocuments }: ChatViewProps) {
   const { messages, isLoading, historyError, isSending, sendError, sendMessage, editMessage } =
     useChat(notebookId);
   const [draft, setDraft] = useState("");
@@ -55,11 +56,23 @@ export function ChatView({ notebookId, notebookName }: ChatViewProps) {
           </p>
         ) : messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
-            <p className="text-sm font-medium text-ink">Ask a question about this notebook</p>
-            <p className="mt-1 max-w-sm text-sm text-ink-muted">
-              Answers are grounded in your uploaded documents. Turn on internet mode below if you want
-              general-knowledge answers too.
-            </p>
+            {hasDocuments ? (
+              <>
+                <p className="text-sm font-medium text-ink">Ask a question about this notebook</p>
+                <p className="mt-1 max-w-sm text-sm text-ink-muted">
+                  Answers are grounded in your uploaded documents. Turn on internet mode below if you
+                  want general-knowledge answers too.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-ink">No documents yet</p>
+                <p className="mt-1 max-w-sm text-sm text-ink-muted">
+                  Upload a PDF in the Documents tab so answers here can be grounded in it, or turn on
+                  internet mode below to ask general-knowledge questions in the meantime.
+                </p>
+              </>
+            )}
           </div>
         ) : (
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">

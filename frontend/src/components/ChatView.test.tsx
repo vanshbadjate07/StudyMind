@@ -25,9 +25,18 @@ describe("ChatView", () => {
   it("shows an empty state when there's no conversation yet", async () => {
     vi.spyOn(api, "listChatMessages").mockResolvedValue([]);
 
-    render(<ChatView notebookId="nb-1" notebookName="ML Notes" />);
+    render(<ChatView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
 
     expect(await screen.findByText(/ask a question about this notebook/i)).toBeInTheDocument();
+  });
+
+  it("shows an upload prompt instead when the notebook has no documents yet", async () => {
+    vi.spyOn(api, "listChatMessages").mockResolvedValue([]);
+
+    render(<ChatView notebookId="nb-1" notebookName="ML Notes" hasDocuments={false} />);
+
+    expect(await screen.findByText(/no documents yet/i)).toBeInTheDocument();
+    expect(screen.queryByText(/ask a question about this notebook/i)).not.toBeInTheDocument();
   });
 
   it("renders existing conversation history with citations", async () => {
@@ -41,7 +50,7 @@ describe("ChatView", () => {
       }),
     ]);
 
-    render(<ChatView notebookId="nb-1" notebookName="ML Notes" />);
+    render(<ChatView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
 
     expect(await screen.findByText("How are neural networks trained?")).toBeInTheDocument();
     expect(screen.getByText("Via backpropagation.")).toBeInTheDocument();
@@ -54,7 +63,7 @@ describe("ChatView", () => {
       makeMessage({ used_internet: true, grounded: false, content: "General knowledge answer." }),
     ]);
 
-    render(<ChatView notebookId="nb-1" notebookName="ML Notes" />);
+    render(<ChatView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
 
     expect(await screen.findByText("General knowledge answer.")).toBeInTheDocument();
     expect(screen.getByText(/from general knowledge, not your material/i)).toBeInTheDocument();
@@ -65,7 +74,7 @@ describe("ChatView", () => {
     vi.spyOn(api, "askChatQuestion").mockResolvedValue(makeMessage({ content: "The answer." }));
     const user = userEvent.setup();
 
-    render(<ChatView notebookId="nb-1" notebookName="ML Notes" />);
+    render(<ChatView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
     await screen.findByText(/ask a question about this notebook/i);
 
     await user.type(screen.getByLabelText(/your question/i), "What is X?");
@@ -81,7 +90,7 @@ describe("ChatView", () => {
     vi.spyOn(api, "askChatQuestion").mockResolvedValue(makeMessage({ content: "An answer." }));
     const user = userEvent.setup();
 
-    render(<ChatView notebookId="nb-1" notebookName="ML Notes" />);
+    render(<ChatView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
     await screen.findByText(/ask a question about this notebook/i);
 
     await user.click(screen.getByRole("checkbox", { name: /internet mode/i }));
@@ -96,7 +105,7 @@ describe("ChatView", () => {
     vi.spyOn(api, "askChatQuestion").mockResolvedValue(makeMessage({ content: "An answer." }));
     const user = userEvent.setup();
 
-    render(<ChatView notebookId="nb-1" notebookName="ML Notes" />);
+    render(<ChatView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
     await screen.findByText(/ask a question about this notebook/i);
 
     const input = screen.getByLabelText(/your question/i);
@@ -111,7 +120,7 @@ describe("ChatView", () => {
     vi.spyOn(api, "askChatQuestion").mockRejectedValue(new api.ApiError(503, "AI service unreachable."));
     const user = userEvent.setup();
 
-    render(<ChatView notebookId="nb-1" notebookName="ML Notes" />);
+    render(<ChatView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
     await screen.findByText(/ask a question about this notebook/i);
 
     await user.type(screen.getByLabelText(/your question/i), "What is X?");
@@ -128,7 +137,7 @@ describe("ChatView", () => {
       }),
     ]);
 
-    render(<ChatView notebookId="nb-1" notebookName="ML Notes" />);
+    render(<ChatView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
 
     expect(await screen.findByText("MongoDB")).toBeInTheDocument();
     expect(screen.getByText("MongoDB").tagName).toBe("STRONG");
@@ -148,7 +157,7 @@ describe("ChatView", () => {
     );
     const user = userEvent.setup();
 
-    render(<ChatView notebookId="nb-1" notebookName="ML Notes" />);
+    render(<ChatView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
     await screen.findByText("What is MongoDB?");
 
     await user.click(screen.getByRole("button", { name: /edit this question/i }));
@@ -182,7 +191,7 @@ describe("ChatView", () => {
     const editSpy = vi.spyOn(api, "editChatQuestion");
     const user = userEvent.setup();
 
-    render(<ChatView notebookId="nb-1" notebookName="ML Notes" />);
+    render(<ChatView notebookId="nb-1" notebookName="ML Notes" hasDocuments />);
     await screen.findByText("What is MongoDB?");
 
     await user.click(screen.getByRole("button", { name: /edit this question/i }));

@@ -165,6 +165,42 @@ def test_list_messages_empty_for_a_fresh_notebook(client: TestClient) -> None:
     assert history == []
 
 
+def test_question_in_a_notebook_with_no_documents_never_calls_ollama(client: TestClient) -> None:
+    # No monkeypatch of app.services.chat.OllamaClient here — conftest's
+    # default stub raises OllamaUnreachableError if actually called, so a
+    # 201 here proves the LLM was never invoked for this state.
+    notebook_id = _create_notebook(client)
+
+    response = client.post(
+        f"/notebooks/{notebook_id}/chat/messages",
+        json={"question": "What is MongoDB?", "internet_mode": False},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["grounded"] is False
+    assert body["used_internet"] is False
+    assert "doesn't have any documents yet" in body["content"].lower()
+
+
+def test_question_in_a_notebook_with_no_documents_and_internet_mode_answers_freely(
+    client: TestClient, monkeypatch
+) -> None:
+    fake = _FakeTextClient("MongoDB is a NoSQL database.")
+    monkeypatch.setattr("app.services.chat.OllamaClient", lambda *a, **k: fake)
+    notebook_id = _create_notebook(client)
+
+    response = client.post(
+        f"/notebooks/{notebook_id}/chat/messages",
+        json={"question": "What is MongoDB?", "internet_mode": True},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["content"] == "MongoDB is a NoSQL database."
+    assert body["used_internet"] is True
+
+
 def test_ask_question_rejects_empty_question(client: TestClient) -> None:
     notebook_id = _create_notebook(client)
     response = client.post(

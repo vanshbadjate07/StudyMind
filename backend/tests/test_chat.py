@@ -243,21 +243,38 @@ class TestUngroundedAnswers:
         assert reply.citations_json is None
         assert "general knowledge" in client.prompts[0].lower()
 
-    async def test_notebook_with_no_ready_documents_still_gets_a_real_answer(
+    async def test_notebook_with_no_ready_documents_and_no_internet_mode_never_calls_the_llm(
         self, session: AsyncSession, vector_store: VectorStore
     ) -> None:
-        """A greeting to a brand-new, empty notebook should get a normal
-        response, not a confusing refusal about material that was never
-        asked about."""
+        """Regression test: this used to always call the LLM, even with zero
+        documents uploaded — the small local model turned out not to reliably
+        follow "don't answer from your own knowledge" instructions, so a
+        question like "what is MongoDB?" got a confident, fully-fabricated
+        answer despite there being no material and internet mode off. The
+        only fix that actually guarantees this can't happen is not calling
+        the LLM at all for this exact, fully deterministic state."""
         notebook = await _create_notebook(session, name="Empty Notebook")
-        client = ScriptedTextClient(["Hi! Upload a document to get started."])
+        client = ScriptedTextClient([])
 
-        reply = await ask_question(notebook, "Hi", False, session, vector_store, client)
+        reply = await ask_question(notebook, "What is MongoDB?", False, session, vector_store, client)
 
-        assert reply.content == "Hi! Upload a document to get started."
         assert reply.grounded is False
+        assert reply.used_internet is False
+        assert "doesn't have any documents yet" in reply.content.lower()
+        assert client.prompts == []
+
+    async def test_notebook_with_no_ready_documents_but_internet_mode_still_answers(
+        self, session: AsyncSession, vector_store: VectorStore
+    ) -> None:
+        notebook = await _create_notebook(session, name="Empty Notebook")
+        client = ScriptedTextClient(["MongoDB is a NoSQL database."])
+
+        reply = await ask_question(notebook, "What is MongoDB?", True, session, vector_store, client)
+
+        assert reply.content == "MongoDB is a NoSQL database."
+        assert reply.grounded is False
+        assert reply.used_internet is True
         assert len(client.prompts) == 1
-        assert "doesn't have any processed material yet" in client.prompts[0].lower()
 
     async def test_overview_is_included_as_context_when_no_specific_passage_matches(
         self, session: AsyncSession, vector_store: VectorStore

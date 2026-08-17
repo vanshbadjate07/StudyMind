@@ -76,7 +76,11 @@ function App() {
             onDeleteNotebook={removeNotebook}
           />
         ) : activeSection === "chat" ? (
-          <ChatView notebookId={activeNotebook.id} notebookName={activeNotebook.name} />
+          <ChatView
+            notebookId={activeNotebook.id}
+            notebookName={activeNotebook.name}
+            hasDocuments={documents.some((doc) => doc.status === "ready")}
+          />
         ) : (
           <main className="mx-auto min-h-0 w-full max-w-3xl flex-1 overflow-y-auto px-6 py-10 lg:px-12">
             <NotebookHeader
