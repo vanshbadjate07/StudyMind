@@ -1,14 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { GoalType, NotebookRecord } from "../lib/api";
+import { GOAL_LABELS } from "../lib/goalLabels";
 import { GoalDialog } from "./GoalDialog";
-
-const GOAL_LABELS: Record<GoalType, string> = {
-  exam: "Exam prep",
-  interview: "Interview prep",
-  skill: "Learning a skill",
-  exploration: "Just exploring",
-  custom: "Custom goal",
-};
 
 interface NotebookHeaderProps {
   notebook: NotebookRecord;

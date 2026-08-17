@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChatView } from "./components/ChatView";
 import { DocumentList } from "./components/DocumentList";
+import { HomeView } from "./components/HomeView";
 import { HowItWorks } from "./components/HowItWorks";
 import { NotebookHeader } from "./components/NotebookHeader";
 import { OverviewPanel } from "./components/OverviewPanel";
@@ -13,14 +14,13 @@ function App() {
   const {
     notebooks,
     activeNotebook,
-    activeId,
-    setActiveId,
     isLoading: notebooksLoading,
     error: notebooksError,
     addNotebook,
     removeNotebook,
     renameNotebook,
     updateGoal,
+    setActiveId,
   } = useNotebooks();
   const {
     documents,
@@ -28,23 +28,22 @@ function App() {
     error: documentsError,
     addDocument,
     removeDocument,
-  } = useDocuments(activeId);
+  } = useDocuments(activeNotebook?.id ?? null);
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("documents");
+
+  const goHome = () => setActiveId(null);
+  const openNotebook = (id: string) => {
+    setActiveSection("documents");
+    setActiveId(id);
+  };
 
   return (
     <div className="flex h-screen overflow-hidden bg-paper">
       <Sidebar
-        notebooks={notebooks}
-        activeNotebookId={activeId}
-        notebooksLoading={notebooksLoading}
+        activeNotebook={activeNotebook}
         activeSection={activeSection}
         onSelectSection={setActiveSection}
-        onSelectNotebook={setActiveId}
-        onCreateNotebook={() => void addNotebook()}
-        onDeleteNotebook={removeNotebook}
-        onRenameNotebook={async (id, name) => {
-          await renameNotebook(id, name);
-        }}
+        onGoHome={goHome}
       />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -56,31 +55,18 @@ function App() {
           </div>
         </header>
 
-        {notebooksError && (
-          <p role="alert" className="px-6 pt-6 text-sm text-status-failed lg:px-12">
-            {notebooksError}
-          </p>
-        )}
-
-        {notebooksLoading ? (
-          <div className="mx-auto w-full max-w-3xl px-6 py-10 lg:px-12">
-            <div className="h-24 animate-pulse rounded-xl bg-line/60" />
-          </div>
-        ) : activeNotebook === null ? (
-          <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center px-6 py-10 text-center lg:px-12">
-            <p className="text-sm font-medium text-ink">No notebook yet</p>
-            <p className="mt-1 max-w-sm text-sm text-ink-muted">
-              A notebook groups the resources you're studying from — create one to start
-              uploading documents.
-            </p>
-            <button
-              type="button"
-              onClick={() => void addNotebook()}
-              className="mt-4 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover"
-            >
-              Create your first notebook
-            </button>
-          </div>
+        {activeNotebook === null ? (
+          <HomeView
+            notebooks={notebooks}
+            isLoading={notebooksLoading}
+            error={notebooksError}
+            onCreateNotebook={() => void addNotebook()}
+            onOpenNotebook={openNotebook}
+            onRenameNotebook={async (id, name) => {
+              await renameNotebook(id, name);
+            }}
+            onDeleteNotebook={removeNotebook}
+          />
         ) : activeSection === "chat" ? (
           <ChatView notebookId={activeNotebook.id} notebookName={activeNotebook.name} />
         ) : (

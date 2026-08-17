@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useOverview } from "../hooks/useOverview";
 import { describeErrorReason } from "../lib/errorMessages";
+import { highlightKeyTerms } from "../lib/highlightKeyTerms";
 
 interface OverviewPanelProps {
   notebookId: string;
@@ -81,11 +82,14 @@ function OverviewBody({ isLoading, error, overview, isRegenerating, onRegenerate
   }
 
   const hasDetails = overview.topics.length > 0;
+  const keyConcepts = overview.topics.flatMap((topic) => topic.key_concepts);
 
   return (
     <div className="rounded-xl border border-line bg-surface p-4">
       {overview.short_summary ? (
-        <p className="text-sm leading-relaxed text-ink">{overview.short_summary}</p>
+        <p className="text-sm leading-relaxed text-ink">
+          {highlightKeyTerms(overview.short_summary, keyConcepts)}
+        </p>
       ) : (
         <p className="text-sm leading-relaxed text-ink-muted">No summary available yet.</p>
       )}

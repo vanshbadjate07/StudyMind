@@ -28,6 +28,25 @@
   --color-status-ready-subtle: #ccfbf1;
   --color-status-failed: #e11d48;
   --color-status-failed-subtle: #ffe4e6;
+
+  /* Identity accents for notebook cards — a small curated rotation (not a
+     full rainbow) spanning distinct hues so each notebook actually reads as
+     different at a glance, while staying muted enough to sit alongside the
+     paper/cream palette rather than compete with it. Deliberately excludes
+     --color-brand's exact orange — a notebook landing in that bucket would
+     be visually indistinguishable from the app's own brand chrome (the
+     "+ New notebook" tile, "Set a goal" button, etc.) rather than reading
+     as a distinct per-notebook color. */
+  --color-accent-gold: #a3820b;
+  --color-accent-gold-subtle: #f5eed7;
+  --color-accent-forest: #3f7d4a;
+  --color-accent-forest-subtle: #e1efe3;
+  --color-accent-steel: #3d6b8a;
+  --color-accent-steel-subtle: #dfeaf1;
+  --color-accent-berry: #954c7a;
+  --color-accent-berry-subtle: #f2e3ec;
+  --color-accent-rust: #a8452e;
+  --color-accent-rust-subtle: #f4e0da;
 }
 
 body {

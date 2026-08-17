@@ -36,10 +36,11 @@ export function useNotebooks() {
       const fetched = await listNotebooks();
       setNotebooks(fetched);
       setError(null);
-      setActiveId((current) => {
-        if (current !== null && fetched.some((n) => n.id === current)) return current;
-        return fetched[0]?.id ?? null;
-      });
+      // Never auto-opens a notebook — the home gallery is the default
+      // landing view. Only keeps the current selection if it's still valid
+      // (e.g. after a rename), otherwise falls back to the gallery rather
+      // than silently jumping into whichever notebook happens to be first.
+      setActiveId((current) => (current !== null && fetched.some((n) => n.id === current) ? current : null));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't reach the server.");
     } finally {
@@ -61,6 +62,12 @@ export function useNotebooks() {
   const removeNotebook = useCallback(async (id: string) => {
     await deleteNotebook(id);
     setNotebooks((prev) => prev.filter((n) => n.id !== id));
+    // Belt-and-suspenders, not normally hit: delete is only triggered from
+    // a NotebookCard on the Home gallery, and opening a notebook always
+    // routes away from Home first, so `current === id` shouldn't be
+    // reachable in the primary flow today. Kept in case a future surface
+    // (e.g. an in-workspace delete action) lets a notebook delete itself
+    // while active.
     setActiveId((current) => (current === id ? null : current));
   }, []);
 
