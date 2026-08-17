@@ -10,10 +10,16 @@ interface OverviewPanelProps {
    * doc comment for why this is needed to catch a regeneration that
    * happens after the overview already looked settled. */
   watchKey: string;
+  /** Fired when a generation run completes — see useOverview's doc comment. */
+  onOverviewSettled?: () => void;
 }
 
-export function OverviewPanel({ notebookId, watchKey }: OverviewPanelProps) {
-  const { overview, isLoading, error, isRegenerating, regenerate } = useOverview(notebookId, watchKey);
+export function OverviewPanel({ notebookId, watchKey, onOverviewSettled }: OverviewPanelProps) {
+  const { overview, isLoading, error, isRegenerating, regenerate } = useOverview(
+    notebookId,
+    watchKey,
+    onOverviewSettled,
+  );
 
   return (
     <section>

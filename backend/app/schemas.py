@@ -1,14 +1,32 @@
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from app.models import ChatMessage, ChatRole, DocumentStatus, GoalType, Overview, OverviewStatus
 
 
-class DocumentRead(BaseModel):
+class TimestampedModel(BaseModel):
+    """SQLite has no real timezone-aware storage, so SQLAlchemy always hands
+    back naive datetimes here — they're UTC in fact (server_default=func.now()
+    / datetime.now(UTC) at insert time) but carry no marker saying so. Left
+    alone, that serializes as e.g. "2026-08-17T10:07:22" with no offset, and
+    the browser's `new Date(...)` parses a marker-less string as *local*
+    time — silently shifting every timestamp by the viewer's UTC offset (this
+    is exactly why timestamps were showing "5 hours ago" for things created
+    seconds earlier, at IST/UTC+5:30). Stamping UTC before serializing makes
+    every timestamp this API returns an unambiguous ISO 8601 string."""
+
     model_config = ConfigDict(from_attributes=True)
 
+    @field_serializer("created_at", "updated_at", check_fields=False)
+    def _serialize_utc(self, value: datetime) -> str:
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+class DocumentRead(TimestampedModel):
     id: str
     notebook_id: str
     filename: str
@@ -26,9 +44,7 @@ class DocumentList(BaseModel):
     documents: list[DocumentRead]
 
 
-class NotebookRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class NotebookRead(TimestampedModel):
     id: str
     name: str
     goal_type: GoalType | None
@@ -82,7 +98,7 @@ class TitleSuggestion(BaseModel):
     title: str = Field(min_length=1, max_length=80)
 
 
-class OverviewRead(BaseModel):
+class OverviewRead(TimestampedModel):
     id: str
     notebook_id: str
     status: OverviewStatus
@@ -122,7 +138,7 @@ class ChatAskRequest(BaseModel):
     internet_mode: bool = False
 
 
-class ChatMessageRead(BaseModel):
+class ChatMessageRead(TimestampedModel):
     id: str
     role: ChatRole
     content: str

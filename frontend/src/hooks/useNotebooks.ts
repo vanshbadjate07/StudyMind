@@ -99,5 +99,6 @@ export function useNotebooks() {
     removeNotebook,
     renameNotebook: renameActiveNotebook,
     updateGoal,
+    refresh,
   };
 }

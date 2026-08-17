@@ -146,6 +146,58 @@ describe("useOverview", () => {
     expect(result.current.overview?.notebook_id).toBe("nb-B");
   });
 
+  it("fires onSettled once when a generation run finishes, not on every poll", async () => {
+    // Regression test: a server-side auto-rename (see
+    // overview_generation.py's _maybe_autoname_notebook) commits in the same
+    // transaction as the overview flipping to READY, but nothing re-fetched
+    // the notebooks list, so the new name only ever appeared after a full
+    // page reload. onSettled is the hook into that moment.
+    const getSpy = vi
+      .spyOn(api, "getNotebookOverview")
+      .mockResolvedValueOnce(makeOverview({ status: "generating" }))
+      .mockResolvedValueOnce(makeOverview({ status: "generating" }))
+      .mockResolvedValue(makeOverview({ status: "ready" }));
+    const onSettled = vi.fn();
+
+    renderHook(({ watchKey }) => useOverview("nb-1", watchKey, onSettled), {
+      initialProps: { watchKey: "doc-1:ready" },
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(onSettled).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(onSettled).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(onSettled).toHaveBeenCalledTimes(1);
+
+    // Further polling (settle-attempt ticks) must not fire it again.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500 * 5);
+    });
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    expect(getSpy.mock.calls.length).toBeGreaterThan(3);
+  });
+
+  it("does not fire onSettled on initial mount when the overview is already settled", async () => {
+    vi.spyOn(api, "getNotebookOverview").mockResolvedValue(makeOverview({ status: "ready" }));
+    const onSettled = vi.fn();
+
+    renderHook(() => useOverview("nb-1", "doc-1:ready", onSettled));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(onSettled).not.toHaveBeenCalled();
+  });
+
   it("does not keep polling after unmounting while a fetch is in flight", async () => {
     // Regression test: if a poll's fetch was still in flight when the
     // component unmounted, it used to resolve afterward, pass its own

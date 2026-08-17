@@ -30,8 +30,16 @@ function isInFlight(overview: OverviewRecord | null): boolean {
  * waiting for a React re-render to notice. Relying on re-renders to
  * re-evaluate the stop condition is fragile: React skips re-rendering a
  * state update that's reference-equal to the current value, which would
- * silently leave a stale interval running forever with no way to stop it. */
-export function useOverview(notebookId: string, watchKey: string) {
+ * silently leave a stale interval running forever with no way to stop it.
+ *
+ * `onSettled` fires once whenever a poll cycle observes the overview go
+ * from in-flight to settled (ready or failed) — the earliest point a
+ * server-side auto-rename from that same generation run (see
+ * overview_generation.py's `_maybe_autoname_notebook`, which commits in the
+ * same transaction as the overview's READY status) is guaranteed visible.
+ * Without this, the notebook's new name only ever showed up after a full
+ * page reload, since nothing else re-fetches the notebooks list. */
+export function useOverview(notebookId: string, watchKey: string, onSettled?: () => void) {
   const [overview, setOverview] = useState<OverviewRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +49,9 @@ export function useOverview(notebookId: string, watchKey: string) {
   const errorRef = useRef<string | null>(null);
   const settleAttemptsRef = useRef(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wasInFlightRef = useRef(false);
+  const onSettledRef = useRef(onSettled);
+  onSettledRef.current = onSettled;
   // Bumped on every notebookId/watchKey change so an in-flight fetch from a
   // superseded cycle can't clobber state after a newer cycle already started.
   const requestIdRef = useRef(0);
@@ -49,6 +60,9 @@ export function useOverview(notebookId: string, watchKey: string) {
     try {
       const record = await getNotebookOverview(id);
       if (requestId !== requestIdRef.current) return;
+      const nowInFlight = isInFlight(record);
+      if (wasInFlightRef.current && !nowInFlight) onSettledRef.current?.();
+      wasInFlightRef.current = nowInFlight;
       overviewRef.current = record;
       errorRef.current = null;
       setOverview(record);
@@ -89,6 +103,7 @@ export function useOverview(notebookId: string, watchKey: string) {
     const requestId = requestIdRef.current;
     settleAttemptsRef.current = SETTLE_POLL_ATTEMPTS;
     errorRef.current = null;
+    wasInFlightRef.current = false;
     setIsLoading(true);
     setError(null);
 
@@ -122,6 +137,7 @@ export function useOverview(notebookId: string, watchKey: string) {
       const record = await regenerateNotebookOverview(id);
       if (requestId !== requestIdRef.current) return; // superseded by a notebook switch/unmount meanwhile
       overviewRef.current = record;
+      wasInFlightRef.current = isInFlight(record);
       setOverview(record);
       settleAttemptsRef.current = SETTLE_POLL_ATTEMPTS;
       scheduleNextPoll(id, requestId);

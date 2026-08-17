@@ -21,6 +21,7 @@ function App() {
     renameNotebook,
     updateGoal,
     setActiveId,
+    refresh: refreshNotebooks,
   } = useNotebooks();
   const {
     documents,
@@ -31,7 +32,10 @@ function App() {
   } = useDocuments(activeNotebook?.id ?? null);
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("documents");
 
-  const goHome = () => setActiveId(null);
+  const goHome = () => {
+    setActiveId(null);
+    void refreshNotebooks();
+  };
   const openNotebook = (id: string) => {
     setActiveSection("documents");
     setActiveId(id);
@@ -93,6 +97,7 @@ function App() {
                     .map((doc) => `${doc.id}:${doc.status}`)
                     .sort()
                     .join(",")}
+                  onOverviewSettled={() => void refreshNotebooks()}
                 />
               ) : (
                 <HowItWorks />
