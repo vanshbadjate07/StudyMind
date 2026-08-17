@@ -5,6 +5,7 @@ import { useDocuments } from "./useDocuments";
 
 const readyDoc: api.DocumentRecord = {
   id: "1",
+  notebook_id: "nb-1",
   filename: "a.pdf",
   status: "ready",
   page_count: 1,
@@ -30,11 +31,11 @@ describe("useDocuments", () => {
 
   it("polls while a document is in-flight and stops once everything settles", async () => {
     const listSpy = vi
-      .spyOn(api, "listDocuments")
+      .spyOn(api, "listNotebookDocuments")
       .mockResolvedValueOnce([processingDoc])
       .mockResolvedValueOnce([readyDoc]);
 
-    const { result } = renderHook(() => useDocuments());
+    const { result } = renderHook(() => useDocuments("nb-1"));
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
@@ -55,8 +56,8 @@ describe("useDocuments", () => {
   });
 
   it("does not poll at all if nothing is in-flight from the start", async () => {
-    const listSpy = vi.spyOn(api, "listDocuments").mockResolvedValue([readyDoc]);
-    const { result } = renderHook(() => useDocuments());
+    const listSpy = vi.spyOn(api, "listNotebookDocuments").mockResolvedValue([readyDoc]);
+    const { result } = renderHook(() => useDocuments("nb-1"));
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
@@ -67,5 +68,18 @@ describe("useDocuments", () => {
       await vi.advanceTimersByTimeAsync(10000);
     });
     expect(listSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns no documents and does not call the API when no notebook is selected", async () => {
+    const listSpy = vi.spyOn(api, "listNotebookDocuments");
+    const { result } = renderHook(() => useDocuments(null));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.documents).toEqual([]);
+    expect(listSpy).not.toHaveBeenCalled();
   });
 });

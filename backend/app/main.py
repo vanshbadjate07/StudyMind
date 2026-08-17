@@ -6,13 +6,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import db
 from app.config import settings
-from app.routers import documents
+from app.migrations import migrate_documents_notebook_column
+from app.routers import documents, notebooks
 from app.services.processing_pipeline import reconcile_interrupted_documents
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await db.init_db()
+    await migrate_documents_notebook_column()
     # Accessed via the `db` module (not `from app.db import async_session_factory`)
     # so tests that monkeypatch `db.async_session_factory` to a test engine are
     # respected here too — a plain `from`-import would capture the production
@@ -32,6 +34,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(notebooks.router)
 app.include_router(documents.router)
 
 

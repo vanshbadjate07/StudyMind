@@ -2,6 +2,7 @@ export type DocumentStatus = "pending" | "processing" | "ready" | "failed";
 
 export interface DocumentRecord {
   id: string;
+  notebook_id: string;
   filename: string;
   status: DocumentStatus;
   page_count: number | null;
@@ -29,6 +30,17 @@ export interface OverviewRecord {
   estimated_minutes: number | null;
   error_reason: string | null;
   error_detail: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type GoalType = "exam" | "interview" | "skill" | "exploration" | "custom";
+
+export interface NotebookRecord {
+  id: string;
+  name: string;
+  goal_type: GoalType | null;
+  goal_description: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -64,8 +76,41 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function listDocuments(): Promise<DocumentRecord[]> {
-  const response = await fetch(`${API_BASE_URL}/documents`);
+export async function listNotebooks(): Promise<NotebookRecord[]> {
+  const response = await fetch(`${API_BASE_URL}/notebooks`);
+  const data = await handleResponse<{ notebooks: NotebookRecord[] }>(response);
+  return data.notebooks;
+}
+
+export async function createNotebook(name?: string): Promise<NotebookRecord> {
+  const response = await fetch(`${API_BASE_URL}/notebooks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  return handleResponse<NotebookRecord>(response);
+}
+
+export async function deleteNotebook(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/notebooks/${id}`, { method: "DELETE" });
+  await handleResponse<void>(response);
+}
+
+export async function setNotebookGoal(
+  id: string,
+  goalType: GoalType,
+  goalDescription?: string,
+): Promise<NotebookRecord> {
+  const response = await fetch(`${API_BASE_URL}/notebooks/${id}/goal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ goal_type: goalType, goal_description: goalDescription }),
+  });
+  return handleResponse<NotebookRecord>(response);
+}
+
+export async function listNotebookDocuments(notebookId: string): Promise<DocumentRecord[]> {
+  const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/documents`);
   const data = await handleResponse<{ documents: DocumentRecord[] }>(response);
   return data.documents;
 }
@@ -100,12 +145,13 @@ export async function regenerateOverview(documentId: string): Promise<OverviewRe
 /** Uses XMLHttpRequest instead of fetch so we can report upload progress —
  * fetch has no cross-browser-reliable way to observe request body progress. */
 export function uploadDocument(
+  notebookId: string,
   file: File,
   onProgress?: (percent: number) => void,
 ): Promise<DocumentRecord> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${API_BASE_URL}/documents`);
+    xhr.open("POST", `${API_BASE_URL}/notebooks/${notebookId}/documents`);
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && onProgress) {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, listDocuments, type DocumentRecord } from "../lib/api";
+import { ApiError, listNotebookDocuments, type DocumentRecord } from "../lib/api";
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -7,15 +7,20 @@ function hasInFlightDocument(documents: DocumentRecord[]): boolean {
   return documents.some((doc) => doc.status === "pending" || doc.status === "processing");
 }
 
-export function useDocuments() {
+export function useDocuments(notebookId: string | null) {
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const refresh = useCallback(async () => {
+    if (notebookId === null) {
+      setDocuments([]);
+      setIsLoading(false);
+      return;
+    }
     try {
-      const fetched = await listDocuments();
+      const fetched = await listNotebookDocuments(notebookId);
       setDocuments(fetched);
       setError(null);
     } catch (err) {
@@ -23,9 +28,10 @@ export function useDocuments() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [notebookId]);
 
   useEffect(() => {
+    setIsLoading(true);
     void refresh();
   }, [refresh]);
 

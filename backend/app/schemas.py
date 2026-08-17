@@ -3,13 +3,14 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import DocumentStatus, Overview, OverviewStatus
+from app.models import DocumentStatus, GoalType, Overview, OverviewStatus
 
 
 class DocumentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    notebook_id: str
     filename: str
     status: DocumentStatus
     page_count: int | None
@@ -23,6 +24,34 @@ class DocumentRead(BaseModel):
 
 class DocumentList(BaseModel):
     documents: list[DocumentRead]
+
+
+class NotebookRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    goal_type: GoalType | None
+    goal_description: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class NotebookList(BaseModel):
+    notebooks: list[NotebookRead]
+
+
+class NotebookCreate(BaseModel):
+    name: str | None = None
+
+
+class NotebookUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
+class GoalUpdate(BaseModel):
+    goal_type: GoalType
+    goal_description: str | None = None
 
 
 class TopicSummary(BaseModel):

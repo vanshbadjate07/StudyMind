@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.db import Base
-from app.models import Chunk, Document, Overview, OverviewStatus
+from app.models import Chunk, Document, Notebook, Overview, OverviewStatus
 from app.services.ollama_client import OllamaUnreachableError
 from app.services.overview_generation import _build_sections, generate_overview
 
@@ -43,7 +43,10 @@ class UnreachableClient:
 
 
 async def _create_document_with_chunks(session: AsyncSession, chunk_texts: list[str]) -> Document:
-    doc = Document(filename="notes.pdf", file_path="/tmp/notes.pdf")
+    notebook = Notebook(name="Test Notebook")
+    session.add(notebook)
+    await session.flush()
+    doc = Document(notebook_id=notebook.id, filename="notes.pdf", file_path="/tmp/notes.pdf")
     session.add(doc)
     await session.commit()
     await session.refresh(doc)
@@ -164,7 +167,10 @@ class TestGenerateOverview:
     async def test_document_with_no_chunks_fails_with_no_content_reason(
         self, session: AsyncSession
     ) -> None:
-        doc = Document(filename="empty.pdf", file_path="/tmp/empty.pdf")
+        notebook = Notebook(name="Test Notebook")
+        session.add(notebook)
+        await session.flush()
+        doc = Document(notebook_id=notebook.id, filename="empty.pdf", file_path="/tmp/empty.pdf")
         session.add(doc)
         await session.commit()
         await session.refresh(doc)

@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.db import Base
-from app.models import Chunk, Document, DocumentStatus
+from app.models import Chunk, Document, DocumentStatus, Notebook
 from app.services.processing_pipeline import process_document, reconcile_interrupted_documents
 from app.services.vector_store import VectorStore
 
@@ -29,7 +29,12 @@ def vector_store(tmp_path) -> VectorStore:
 
 
 async def _create_document(session: AsyncSession, fixture_name: str) -> Document:
-    doc = Document(filename=fixture_name, file_path=str(FIXTURES / fixture_name))
+    notebook = Notebook(name="Test Notebook")
+    session.add(notebook)
+    await session.flush()
+    doc = Document(
+        notebook_id=notebook.id, filename=fixture_name, file_path=str(FIXTURES / fixture_name)
+    )
     session.add(doc)
     await session.commit()
     await session.refresh(doc)

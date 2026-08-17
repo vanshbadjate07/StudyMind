@@ -2,16 +2,10 @@ import json
 import time
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-import app.db as db_module
-import app.routers.documents as documents_module
-from app.main import app
 from app.models import Overview, OverviewStatus
-from app.services.vector_store import get_vector_store
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -30,31 +24,14 @@ class _FakeReadyClient:
         )
 
 
-@pytest.fixture
-def client(tmp_path, monkeypatch) -> TestClient:
-    test_engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
-    test_factory = async_sessionmaker(test_engine, expire_on_commit=False)
-
-    monkeypatch.setattr(db_module, "engine", test_engine)
-    monkeypatch.setattr(db_module, "async_session_factory", test_factory)
-    monkeypatch.setattr(documents_module, "async_session_factory", test_factory)
-
-    uploads_dir = tmp_path / "uploads"
-    uploads_dir.mkdir()
-    monkeypatch.setattr(documents_module.settings, "uploads_dir", uploads_dir)
-    monkeypatch.setattr(documents_module.settings, "chroma_dir", tmp_path / "chroma")
-    monkeypatch.setattr(documents_module.settings, "chroma_collection_name", f"test_{tmp_path.name}")
-
-    get_vector_store.cache_clear()
-    with TestClient(app) as test_client:
-        test_client.test_session_factory = test_factory  # for tests that need to inspect the DB directly
-        yield test_client
-    get_vector_store.cache_clear()
-
-
 def _upload(client: TestClient, fixture_name: str) -> str:
+    """Creates a fresh notebook and uploads the fixture into it — these tests
+    only care about document/overview behavior, not notebook identity."""
+    notebook_id = client.post("/notebooks", json={}).json()["id"]
     data = (FIXTURES / fixture_name).read_bytes()
-    response = client.post("/documents", files={"file": (fixture_name, data, "application/pdf")})
+    response = client.post(
+        f"/notebooks/{notebook_id}/documents", files={"file": (fixture_name, data, "application/pdf")}
+    )
     return response.json()["id"]
 
 

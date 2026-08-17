@@ -1,15 +1,42 @@
+import { useState } from "react";
 import { DocumentList } from "./components/DocumentList";
 import { HowItWorks } from "./components/HowItWorks";
+import { NewNotebookDialog } from "./components/NewNotebookDialog";
+import { NotebookHeader } from "./components/NotebookHeader";
 import { Sidebar } from "./components/Sidebar";
 import { UploadDropzone } from "./components/UploadDropzone";
 import { useDocuments } from "./hooks/useDocuments";
+import { useNotebooks } from "./hooks/useNotebooks";
 
 function App() {
-  const { documents, isLoading, error, addDocument, removeDocument } = useDocuments();
+  const {
+    notebooks,
+    activeNotebook,
+    activeId,
+    setActiveId,
+    isLoading: notebooksLoading,
+    error: notebooksError,
+    addNotebook,
+    updateGoal,
+  } = useNotebooks();
+  const {
+    documents,
+    isLoading: documentsLoading,
+    error: documentsError,
+    addDocument,
+    removeDocument,
+  } = useDocuments(activeId);
+  const [newNotebookDialogOpen, setNewNotebookDialogOpen] = useState(false);
 
   return (
     <div className="flex h-screen overflow-hidden bg-paper">
-      <Sidebar />
+      <Sidebar
+        notebooks={notebooks}
+        activeNotebookId={activeId}
+        notebooksLoading={notebooksLoading}
+        onSelectNotebook={setActiveId}
+        onCreateNotebook={() => setNewNotebookDialogOpen(true)}
+      />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
         <header className="flex items-center gap-2.5 border-b border-line bg-surface px-6 py-4 lg:hidden">
@@ -20,44 +47,82 @@ function App() {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-3xl px-6 py-10 lg:px-12">
-          <div className="mb-8">
-            <p className="text-xs font-semibold tracking-wide text-brand uppercase">Workspace</p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-ink">Documents</h1>
-            <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-muted">
-              Upload a PDF and StudyMind reads it, structures it, and grounds every answer,
-              quiz, and interview question strictly in what you gave it, unless you tell it
-              otherwise.
-            </p>
-          </div>
-
-          <div className="mb-10">
-            <HowItWorks />
-          </div>
-
-          <section>
-            <h2 className="text-sm font-semibold tracking-tight text-ink">Upload a document</h2>
-            <p className="mt-1 mb-4 text-xs text-ink-muted">
-              PDF only for now. More formats are on the way.
-            </p>
-            <UploadDropzone onUploaded={addDocument} />
-          </section>
-        </main>
-
-        <section className="mx-auto w-full max-w-5xl px-6 pb-10 lg:px-12">
-          <h2 className="text-sm font-semibold tracking-tight text-ink">Your documents</h2>
-          <p className="mt-1 mb-4 text-xs text-ink-muted">
-            Select a document to see its overview. Add as many resources as you're studying
-            from.
+        {notebooksError && (
+          <p role="alert" className="px-6 pt-6 text-sm text-status-failed lg:px-12">
+            {notebooksError}
           </p>
-          {error && (
-            <p role="alert" className="mb-4 text-sm text-status-failed">
-              {error}
+        )}
+
+        {notebooksLoading ? (
+          <div className="mx-auto w-full max-w-3xl px-6 py-10 lg:px-12">
+            <div className="h-24 animate-pulse rounded-xl bg-line/60" />
+          </div>
+        ) : activeNotebook === null ? (
+          <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center px-6 py-10 text-center lg:px-12">
+            <p className="text-sm font-medium text-ink">No notebook yet</p>
+            <p className="mt-1 max-w-sm text-sm text-ink-muted">
+              A notebook groups the resources you're studying from — create one to start
+              uploading documents.
             </p>
-          )}
-          <DocumentList documents={documents} isLoading={isLoading} onDeleted={removeDocument} />
-        </section>
+            <button
+              type="button"
+              onClick={() => setNewNotebookDialogOpen(true)}
+              className="mt-4 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover"
+            >
+              Create your first notebook
+            </button>
+          </div>
+        ) : (
+          <>
+            <main className="mx-auto w-full max-w-3xl px-6 py-10 lg:px-12">
+              <NotebookHeader
+                notebook={activeNotebook}
+                onSetGoal={async (goalType, description) => {
+                  await updateGoal(activeNotebook.id, goalType, description);
+                }}
+              />
+
+              <div className="mb-10">
+                <HowItWorks />
+              </div>
+
+              <section>
+                <h2 className="text-sm font-semibold tracking-tight text-ink">Upload a document</h2>
+                <p className="mt-1 mb-4 text-xs text-ink-muted">
+                  PDF only for now. More formats are on the way.
+                </p>
+                <UploadDropzone notebookId={activeNotebook.id} onUploaded={addDocument} />
+              </section>
+            </main>
+
+            <section className="mx-auto w-full max-w-5xl px-6 pb-10 lg:px-12">
+              <h2 className="text-sm font-semibold tracking-tight text-ink">Your documents</h2>
+              <p className="mt-1 mb-4 text-xs text-ink-muted">
+                Select a document to see its overview. Add as many resources as you're studying
+                from.
+              </p>
+              {documentsError && (
+                <p role="alert" className="mb-4 text-sm text-status-failed">
+                  {documentsError}
+                </p>
+              )}
+              <DocumentList
+                documents={documents}
+                isLoading={documentsLoading}
+                onDeleted={removeDocument}
+              />
+            </section>
+          </>
+        )}
       </div>
+
+      <NewNotebookDialog
+        open={newNotebookDialogOpen}
+        onCreate={async (name) => {
+          await addNotebook(name);
+        }}
+        onClose={() => setNewNotebookDialogOpen(false)}
+      />
     </div>
   );
 }

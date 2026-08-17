@@ -6,6 +6,7 @@ import { DocumentList } from "./DocumentList";
 
 const baseDoc: api.DocumentRecord = {
   id: "doc-1",
+  notebook_id: "notebook-1",
   filename: "biology-notes.pdf",
   status: "ready",
   page_count: 12,

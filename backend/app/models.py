@@ -22,6 +22,14 @@ class OverviewStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+class GoalType(str, enum.Enum):
+    EXAM = "exam"
+    INTERVIEW = "interview"
+    SKILL = "skill"
+    EXPLORATION = "exploration"
+    CUSTOM = "custom"
+
+
 def _enum_values(enum_cls: type[enum.Enum]) -> list[str]:
     return [member.value for member in enum_cls]
 
@@ -30,10 +38,32 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
+class Notebook(Base):
+    __tablename__ = "notebooks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="Untitled Notebook")
+    goal_type: Mapped[GoalType | None] = mapped_column(
+        Enum(GoalType, values_callable=_enum_values), nullable=True
+    )
+    goal_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    documents: Mapped[list["Document"]] = relationship(
+        back_populates="notebook", cascade="all, delete-orphan"
+    )
+
+
 class Document(Base):
     __tablename__ = "documents"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    notebook_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("notebooks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
     file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     status: Mapped[DocumentStatus] = mapped_column(
@@ -51,6 +81,7 @@ class Document(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+    notebook: Mapped["Notebook"] = relationship(back_populates="documents")
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
     )

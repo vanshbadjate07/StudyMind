@@ -3,10 +3,11 @@ import { ApiError, uploadDocument, type DocumentRecord } from "../lib/api";
 import { validateFile } from "../lib/validation";
 
 interface UploadDropzoneProps {
+  notebookId: string;
   onUploaded: (document: DocumentRecord) => void;
 }
 
-export function UploadDropzone({ onUploaded }: UploadDropzoneProps) {
+export function UploadDropzone({ notebookId, onUploaded }: UploadDropzoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadingName, setUploadingName] = useState<string | null>(null);
@@ -24,7 +25,7 @@ export function UploadDropzone({ onUploaded }: UploadDropzoneProps) {
     setUploadingName(file.name);
     setProgress(0);
     try {
-      const document = await uploadDocument(file, setProgress);
+      const document = await uploadDocument(notebookId, file, setProgress);
       onUploaded(document);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Upload failed. Please try again.");

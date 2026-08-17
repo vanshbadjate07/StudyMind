@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import type { NotebookRecord } from "../lib/api";
 import { InfoDialog } from "./InfoDialog";
 import { PrivacyContent, TermsContent } from "./LegalContent";
 
@@ -61,7 +62,21 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  notebooks: NotebookRecord[];
+  activeNotebookId: string | null;
+  notebooksLoading: boolean;
+  onSelectNotebook: (id: string) => void;
+  onCreateNotebook: () => void;
+}
+
+export function Sidebar({
+  notebooks,
+  activeNotebookId,
+  notebooksLoading,
+  onSelectNotebook,
+  onCreateNotebook,
+}: SidebarProps) {
   const [openDialog, setOpenDialog] = useState<"terms" | "privacy" | null>(null);
 
   return (
@@ -72,6 +87,49 @@ export function Sidebar() {
           <p className="text-sm font-semibold tracking-tight text-ink">StudyMind</p>
           <p className="text-[11px] text-ink-muted">Your material, understood.</p>
         </div>
+      </div>
+
+      <div className="border-b border-line p-3">
+        <div className="flex items-center justify-between px-2 pt-1 pb-2">
+          <p className="text-[11px] font-semibold tracking-wider text-ink-faint uppercase">
+            Notebooks
+          </p>
+          <button
+            type="button"
+            onClick={onCreateNotebook}
+            aria-label="New notebook"
+            className="rounded p-1 text-ink-faint transition-colors hover:bg-paper hover:text-ink"
+          >
+            <PlusIcon />
+          </button>
+        </div>
+        {notebooksLoading ? (
+          <div className="space-y-1.5 px-2">
+            <div className="h-7 animate-pulse rounded-lg bg-line/60" />
+            <div className="h-7 animate-pulse rounded-lg bg-line/60" />
+          </div>
+        ) : notebooks.length === 0 ? (
+          <p className="px-2 text-xs text-ink-muted">No notebooks yet.</p>
+        ) : (
+          <ul className="max-h-40 space-y-0.5 overflow-y-auto">
+            {notebooks.map((notebook) => (
+              <li key={notebook.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelectNotebook(notebook.id)}
+                  aria-current={notebook.id === activeNotebookId ? "true" : undefined}
+                  className={`block w-full truncate rounded-lg px-3 py-1.5 text-left text-sm font-medium transition-colors ${
+                    notebook.id === activeNotebookId
+                      ? "bg-brand-subtle text-brand-ink"
+                      : "text-ink-muted hover:bg-paper hover:text-ink"
+                  }`}
+                >
+                  {notebook.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <nav aria-label="Workspace sections" className="flex-1 p-3">
@@ -156,6 +214,21 @@ function Logo() {
         fillOpacity="0.92"
       />
       <path d="M16 9h5.5c.83 0 1.5.67 1.5 1.5V22h-7V9Z" fill="#FAF8F5" fillOpacity="0.6" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+      className="h-4 w-4"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
     </svg>
   );
 }
