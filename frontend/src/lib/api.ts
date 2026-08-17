@@ -96,6 +96,15 @@ export async function deleteNotebook(id: string): Promise<void> {
   await handleResponse<void>(response);
 }
 
+export async function renameNotebook(id: string, name: string): Promise<NotebookRecord> {
+  const response = await fetch(`${API_BASE_URL}/notebooks/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  return handleResponse<NotebookRecord>(response);
+}
+
 export async function setNotebookGoal(
   id: string,
   goalType: GoalType,

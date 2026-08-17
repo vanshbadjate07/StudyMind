@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { NotebookRecord } from "../lib/api";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { InfoDialog } from "./InfoDialog";
 import { PrivacyContent, TermsContent } from "./LegalContent";
 
@@ -68,6 +69,7 @@ interface SidebarProps {
   notebooksLoading: boolean;
   onSelectNotebook: (id: string) => void;
   onCreateNotebook: () => void;
+  onDeleteNotebook: (id: string) => Promise<void>;
 }
 
 export function Sidebar({
@@ -76,8 +78,28 @@ export function Sidebar({
   notebooksLoading,
   onSelectNotebook,
   onCreateNotebook,
+  onDeleteNotebook,
 }: SidebarProps) {
   const [openDialog, setOpenDialog] = useState<"terms" | "privacy" | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const pendingDeleteNotebook = notebooks.find((n) => n.id === pendingDeleteId) ?? null;
+
+  const confirmDelete = async () => {
+    if (!pendingDeleteId) return;
+    setIsDeleting(true);
+    try {
+      await onDeleteNotebook(pendingDeleteId);
+      setPendingDeleteId(null);
+      setDeleteError(null);
+    } catch {
+      setDeleteError("Couldn't delete this notebook.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <aside className="hidden w-60 shrink-0 border-r border-line bg-surface lg:flex lg:flex-col">
@@ -113,12 +135,12 @@ export function Sidebar({
         ) : (
           <ul className="max-h-40 space-y-0.5 overflow-y-auto">
             {notebooks.map((notebook) => (
-              <li key={notebook.id}>
+              <li key={notebook.id} className="group flex items-center">
                 <button
                   type="button"
                   onClick={() => onSelectNotebook(notebook.id)}
                   aria-current={notebook.id === activeNotebookId ? "true" : undefined}
-                  className={`block w-full truncate rounded-lg px-3 py-1.5 text-left text-sm font-medium transition-colors ${
+                  className={`block min-w-0 flex-1 truncate rounded-lg px-3 py-1.5 text-left text-sm font-medium transition-colors ${
                     notebook.id === activeNotebookId
                       ? "bg-brand-subtle text-brand-ink"
                       : "text-ink-muted hover:bg-paper hover:text-ink"
@@ -126,9 +148,25 @@ export function Sidebar({
                 >
                   {notebook.name}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteError(null);
+                    setPendingDeleteId(notebook.id);
+                  }}
+                  aria-label={`Delete ${notebook.name}`}
+                  className="shrink-0 rounded-lg p-1.5 text-ink-faint opacity-0 transition-colors hover:bg-paper hover:text-status-failed group-hover:opacity-100 focus-visible:opacity-100"
+                >
+                  <TrashIcon />
+                </button>
               </li>
             ))}
           </ul>
+        )}
+        {deleteError && (
+          <p role="alert" className="mt-2 px-2 text-xs text-status-failed">
+            {deleteError}
+          </p>
         )}
       </div>
 
@@ -200,6 +238,19 @@ export function Sidebar({
       <InfoDialog open={openDialog === "privacy"} title="Privacy Policy" onClose={() => setOpenDialog(null)}>
         <PrivacyContent />
       </InfoDialog>
+
+      <ConfirmDialog
+        open={pendingDeleteNotebook !== null}
+        title="Delete this notebook?"
+        description={
+          pendingDeleteNotebook
+            ? `"${pendingDeleteNotebook.name}" and every document inside it will be permanently removed.`
+            : ""
+        }
+        confirmLabel={isDeleting ? "Deleting…" : "Delete"}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </aside>
   );
 }
@@ -214,6 +265,25 @@ function Logo() {
         fillOpacity="0.92"
       />
       <path d="M16 9h5.5c.83 0 1.5.67 1.5 1.5V22h-7V9Z" fill="#FAF8F5" fillOpacity="0.6" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      className="h-3.5 w-3.5"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m2 0-.6 12.2A2 2 0 0 1 14.4 21H9.6a2 2 0 0 1-2-1.8L7 7h10Z"
+      />
     </svg>
   );
 }

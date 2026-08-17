@@ -4,10 +4,26 @@ import {
   createNotebook,
   deleteNotebook,
   listNotebooks,
+  renameNotebook,
   setNotebookGoal,
   type GoalType,
   type NotebookRecord,
 } from "../lib/api";
+
+function nextUntitledName(notebooks: NotebookRecord[]): string {
+  const usedNumbers = new Set<number>();
+  for (const notebook of notebooks) {
+    if (notebook.name === "Untitled") {
+      usedNumbers.add(0);
+      continue;
+    }
+    const match = /^Untitled (\d+)$/.exec(notebook.name);
+    if (match) usedNumbers.add(Number(match[1]));
+  }
+  let n = 0;
+  while (usedNumbers.has(n)) n++;
+  return n === 0 ? "Untitled" : `Untitled ${n}`;
+}
 
 export function useNotebooks() {
   const [notebooks, setNotebooks] = useState<NotebookRecord[]>([]);
@@ -35,21 +51,24 @@ export function useNotebooks() {
     void refresh();
   }, [refresh]);
 
-  const addNotebook = useCallback(async (name?: string) => {
-    const notebook = await createNotebook(name);
+  const addNotebook = useCallback(async () => {
+    const notebook = await createNotebook(nextUntitledName(notebooks));
     setNotebooks((prev) => [notebook, ...prev]);
     setActiveId(notebook.id);
     return notebook;
+  }, [notebooks]);
+
+  const removeNotebook = useCallback(async (id: string) => {
+    await deleteNotebook(id);
+    setNotebooks((prev) => prev.filter((n) => n.id !== id));
+    setActiveId((current) => (current === id ? null : current));
   }, []);
 
-  const removeNotebook = useCallback(
-    async (id: string) => {
-      await deleteNotebook(id);
-      setNotebooks((prev) => prev.filter((n) => n.id !== id));
-      setActiveId((current) => (current === id ? null : current));
-    },
-    [],
-  );
+  const renameActiveNotebook = useCallback(async (id: string, name: string) => {
+    const updated = await renameNotebook(id, name);
+    setNotebooks((prev) => prev.map((n) => (n.id === id ? updated : n)));
+    return updated;
+  }, []);
 
   const updateGoal = useCallback(
     async (id: string, goalType: GoalType, goalDescription?: string) => {
@@ -71,6 +90,7 @@ export function useNotebooks() {
     error,
     addNotebook,
     removeNotebook,
+    renameNotebook: renameActiveNotebook,
     updateGoal,
   };
 }

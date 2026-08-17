@@ -1,7 +1,5 @@
-import { useState } from "react";
 import { DocumentList } from "./components/DocumentList";
 import { HowItWorks } from "./components/HowItWorks";
-import { NewNotebookDialog } from "./components/NewNotebookDialog";
 import { NotebookHeader } from "./components/NotebookHeader";
 import { Sidebar } from "./components/Sidebar";
 import { UploadDropzone } from "./components/UploadDropzone";
@@ -17,6 +15,8 @@ function App() {
     isLoading: notebooksLoading,
     error: notebooksError,
     addNotebook,
+    removeNotebook,
+    renameNotebook,
     updateGoal,
   } = useNotebooks();
   const {
@@ -26,7 +26,6 @@ function App() {
     addDocument,
     removeDocument,
   } = useDocuments(activeId);
-  const [newNotebookDialogOpen, setNewNotebookDialogOpen] = useState(false);
 
   return (
     <div className="flex h-screen overflow-hidden bg-paper">
@@ -35,7 +34,8 @@ function App() {
         activeNotebookId={activeId}
         notebooksLoading={notebooksLoading}
         onSelectNotebook={setActiveId}
-        onCreateNotebook={() => setNewNotebookDialogOpen(true)}
+        onCreateNotebook={() => void addNotebook()}
+        onDeleteNotebook={removeNotebook}
       />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
@@ -66,7 +66,7 @@ function App() {
             </p>
             <button
               type="button"
-              onClick={() => setNewNotebookDialogOpen(true)}
+              onClick={() => void addNotebook()}
               className="mt-4 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover"
             >
               Create your first notebook
@@ -79,6 +79,9 @@ function App() {
                 notebook={activeNotebook}
                 onSetGoal={async (goalType, description) => {
                   await updateGoal(activeNotebook.id, goalType, description);
+                }}
+                onRename={async (name) => {
+                  await renameNotebook(activeNotebook.id, name);
                 }}
               />
 
@@ -115,14 +118,6 @@ function App() {
           </>
         )}
       </div>
-
-      <NewNotebookDialog
-        open={newNotebookDialogOpen}
-        onCreate={async (name) => {
-          await addNotebook(name);
-        }}
-        onClose={() => setNewNotebookDialogOpen(false)}
-      />
     </div>
   );
 }
