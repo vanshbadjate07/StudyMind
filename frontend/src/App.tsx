@@ -36,6 +36,10 @@ function App() {
     setActiveSection("documents");
     setActiveId(id);
   };
+  const createNotebook = () => {
+    setActiveSection("documents");
+    void addNotebook();
+  };
 
   return (
     <div className="flex h-screen overflow-hidden bg-paper">
@@ -60,7 +64,7 @@ function App() {
             notebooks={notebooks}
             isLoading={notebooksLoading}
             error={notebooksError}
-            onCreateNotebook={() => void addNotebook()}
+            onCreateNotebook={createNotebook}
             onOpenNotebook={openNotebook}
             onRenameNotebook={async (id, name) => {
               await renameNotebook(id, name);
