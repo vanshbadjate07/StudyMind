@@ -197,6 +197,61 @@ class TestGroundedAnswers:
         assert reply.used_internet is False
         assert "beyond your notes" in client.prompts[0].lower()
 
+    async def test_a_distance_threshold_false_positive_is_not_shown_as_grounded(
+        self, session: AsyncSession, vector_store: VectorStore
+    ) -> None:
+        """Regression test: retrieval can return a chunk that clears the
+        distance threshold (numerically "close enough") without actually
+        being relevant to the question — e.g. a Python-looping question
+        against a notebook that only covers combinatorial software testing.
+        When the model notices the mismatch and says so in its own answer,
+        that must override the retrieval signal: no citations, no grounded
+        badge, on what is really a refusal, not a sourced answer."""
+        notebook = await _create_notebook(session, name="Software Testing Fundamentals")
+        await _add_ready_document(
+            session,
+            vector_store,
+            notebook.id,
+            "week11.pdf",
+            ["Combinatorial testing and equivalence partitioning reduce the number of test cases."],
+            pages=[2],
+        )
+        client = ScriptedTextClient(
+            [
+                "The provided excerpts do not contain any information about Python looping. "
+                "The excerpts discuss combinatorial testing, which is unrelated to Python "
+                "looping concepts."
+            ]
+        )
+
+        reply = await ask_question(notebook, "What is python looping", False, session, vector_store, client)
+
+        assert reply.grounded is False
+        assert reply.citations_json is None
+        assert "do not contain" in reply.content.lower()
+
+    async def test_a_partially_grounded_answer_keeps_its_citations(
+        self, session: AsyncSession, vector_store: VectorStore
+    ) -> None:
+        """The refusal check only looks at the start of the answer, so a
+        substantive answer that leads with real material and only later
+        notes a gap keeps its citations — it's not a pure refusal."""
+        notebook = await _create_notebook(session, name="ML Notes")
+        await _add_ready_document(session, vector_store, notebook.id, "ml.pdf", ML_TEXTS, pages=[1, 2, 3])
+        client = ScriptedTextClient(
+            [
+                "Backpropagation adjusts weights using the gradient of the loss function. "
+                "The excerpts do not contain details about learning rate schedules, though."
+            ]
+        )
+
+        reply = await ask_question(
+            notebook, "How does backpropagation work?", False, session, vector_store, client
+        )
+
+        assert reply.grounded is True
+        assert reply.citations_json is not None
+
 
 class TestUngroundedAnswers:
     async def test_irrelevant_question_without_internet_mode_still_gets_a_real_answer(

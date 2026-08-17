@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 
 from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -137,6 +138,40 @@ def _history_clause(history: list[ChatMessage]) -> str:
     return "Recent conversation:\n" + "\n".join(lines) + "\n\n"
 
 
+# Phrases the model uses when it recognizes, mid-answer, that the excerpts
+# it was given don't actually address the question — this can happen even
+# though those excerpts individually cleared the vector-distance relevance
+# threshold, because "close enough by distance" isn't the same guarantee as
+# "actually relevant to this specific question." Checked only against the
+# answer's FIRST SENTENCE (not just its opening characters — a short
+# sentence can still fit an unrelated caveat within a fixed-length window):
+# a refusal phrase appearing there means the answer opens by rejecting the
+# question outright (as in the reported case — a Python-looping question
+# against combinatorial-testing excerpts), not a caveat folded into a later
+# sentence of an otherwise-substantive answer that legitimately used the
+# material (e.g. "X works like this. The excerpts don't cover Y, though.").
+_REFUSAL_MARKERS = (
+    "do not contain",
+    "does not contain",
+    "doesn't contain",
+    "don't contain",
+    "no information about",
+    "not contain any information",
+    "cannot provide an answer",
+    "unrelated to",
+    "not related to",
+    "isn't covered",
+    "is not covered",
+    "aren't covered",
+)
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
+
+
+def _is_unfounded_refusal(answer: str) -> bool:
+    first_sentence = _SENTENCE_BOUNDARY.split(answer.strip(), maxsplit=1)[0].lower()
+    return any(marker in first_sentence for marker in _REFUSAL_MARKERS)
+
+
 def _format_excerpts(hits: list[VectorSearchResult], filenames: dict[str, str]) -> str:
     parts = []
     for hit in hits:
@@ -185,7 +220,12 @@ async def ask_question(
     notebook's own overview as context plus an honest-fallback instruction.
     With zero ready documents and internet mode off, the LLM isn't called at
     all (see NO_DOCUMENTS_MESSAGE) — that's the one case where trusting the
-    model's own restraint isn't good enough.
+    model's own restraint isn't good enough. A distance threshold can still
+    let through excerpts that are close enough numerically but not actually
+    relevant to this specific question — see _is_unfounded_refusal, which
+    catches the model's own "these excerpts don't cover that" response and
+    strips the citations/grounded flag rather than presenting a refusal as
+    if it were a sourced answer.
 
     Raises OllamaUnreachableError / OllamaTimeoutError if the LLM call fails —
     the caller decides how to surface that; the user's question is already
@@ -274,6 +314,17 @@ async def ask_question(
         used_internet = internet_mode
 
     answer = await client.generate_text(prompt)
+
+    if grounded and _is_unfounded_refusal(answer):
+        # The distance threshold said the top hits were close enough to be
+        # usable, but "close enough by distance" and "actually answers this
+        # question" aren't the same thing — the model noticed the mismatch
+        # and said so in its own answer (e.g. "these excerpts don't cover
+        # Python looping, they're about combinatorial testing"). Trust that
+        # over the retrieval signal: don't attach citations, or claim
+        # grounding, for material the answer explicitly says it didn't use.
+        grounded = False
+        citations = []
 
     assistant_message = ChatMessage(
         notebook_id=notebook.id,
