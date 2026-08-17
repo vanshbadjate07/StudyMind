@@ -76,30 +76,34 @@ export function NotebookHeader({ notebook, onSetGoal, onRename }: NotebookHeader
             {notebook.name}
           </button>
         )}
-        {notebook.goal_type ? (
-          <p className="mt-1 px-2 text-sm text-ink-muted">
-            Goal: {GOAL_LABELS[notebook.goal_type]}
-            {notebook.goal_description ? ` · ${notebook.goal_description}` : ""}
-          </p>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setDialogOpen(true)}
-            className="mt-1 px-2 text-sm font-medium text-brand hover:text-brand-hover"
-          >
-            Set a goal for this notebook
-          </button>
-        )}
+        <div className="mt-2 px-2">
+          {notebook.goal_type ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-2.5 py-1 text-xs font-medium text-ink-muted">
+                <GoalIcon />
+                {GOAL_LABELS[notebook.goal_type]}
+                {notebook.goal_description ? ` · ${notebook.goal_description}` : ""}
+              </span>
+              <button
+                type="button"
+                onClick={() => setDialogOpen(true)}
+                className="text-xs font-medium text-ink-faint underline decoration-dotted underline-offset-2 hover:text-ink"
+              >
+                Edit
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setDialogOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-brand bg-brand-subtle px-3 py-1.5 text-xs font-semibold text-brand-ink transition-colors hover:bg-brand-subtle/70"
+            >
+              <PlusIcon />
+              Set a goal for this notebook
+            </button>
+          )}
+        </div>
       </div>
-      {notebook.goal_type && (
-        <button
-          type="button"
-          onClick={() => setDialogOpen(true)}
-          className="shrink-0 text-xs font-medium text-ink-muted hover:text-ink"
-        >
-          Edit goal
-        </button>
-      )}
 
       <GoalDialog
         open={dialogOpen}
@@ -109,5 +113,37 @@ export function NotebookHeader({ notebook, onSetGoal, onRename }: NotebookHeader
         onClose={() => setDialogOpen(false)}
       />
     </div>
+  );
+}
+
+function GoalIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+      className="h-3 w-3"
+    >
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="4.5" />
+      <circle cx="12" cy="12" r="0.75" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.9}
+      className="h-3 w-3"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
+    </svg>
   );
 }

@@ -26,16 +26,23 @@ SECTION_PROMPT_TEMPLATE = (
 )
 
 SYNTHESIS_PROMPT_TEMPLATE = (
-    "You are producing a structured overview of a study notebook for a student "
-    "who hasn't read its material yet. The material may come from multiple "
-    "documents on the same subject — treat it as one combined body of study "
-    "material, not separate summaries per document. Based on the material "
-    "below, identify the distinct topics it covers. Respond with ONLY a JSON "
-    'object matching this exact shape: {{"topics": [{{"title": "string", '
-    '"summary": "one sentence", "key_concepts": ["string", "string"]}}], '
-    '"estimated_minutes": integer}}. estimated_minutes should be a rough '
-    "estimate of how long a student would need to study this material, based "
-    "on how many topics there are and how dense they are.\n\n"
+    "You are producing an overview of a study notebook for a student who has "
+    "not read its material yet. The material may come from multiple "
+    "documents on the same subject; treat it as one combined body of study "
+    "material, not separate summaries per document. Respond with ONLY a JSON "
+    'object matching this exact shape: {{"short_summary": "string", '
+    '"topics": [{{"title": "string", "summary": "one sentence", '
+    '"key_concepts": ["string", "string"]}}], "estimated_minutes": integer}}.\n\n'
+    "short_summary must be 2-3 plain sentences of flowing prose, not a list "
+    "or bullet points or topic titles, describing what this material covers "
+    'the way you would explain it out loud to someone who has not seen it '
+    '(for example: "This covers the fundamentals of X, including Y and Z, '
+    'with an emphasis on W.")\n\n'
+    "topics should still identify the distinct topics the material covers, "
+    "for a more detailed breakdown a student can open separately.\n\n"
+    "estimated_minutes should be a rough estimate of how long a student would "
+    "need to study this material, based on how many topics there are and how "
+    "dense they are.\n\n"
     "Material:\n{text}"
 )
 
@@ -289,6 +296,7 @@ async def _mark_ready(
     if overview is None:
         return
     overview.status = OverviewStatus.READY
+    overview.short_summary = result.short_summary
     overview.topics_json = json.dumps([topic.model_dump() for topic in result.topics])
     overview.estimated_minutes = result.estimated_minutes
     overview.error_reason = None

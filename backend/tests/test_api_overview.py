@@ -21,6 +21,7 @@ class _FakeReadyClient:
         # the synthesis call.
         return json.dumps(
             {
+                "short_summary": "s",
                 "topics": [{"title": self._title, "summary": "s", "key_concepts": ["c"]}],
                 "estimated_minutes": self._estimated_minutes,
             }
@@ -88,6 +89,7 @@ def test_overview_ready_with_topics_when_llm_succeeds(client: TestClient, monkey
     overview = _poll_overview_settled(client, notebook_id)
 
     assert overview["status"] == "ready"
+    assert overview["short_summary"] == "s"
     assert overview["topics"][0]["title"] == "T"
     assert overview["estimated_minutes"] == 5
 

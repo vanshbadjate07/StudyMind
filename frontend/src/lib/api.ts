@@ -26,6 +26,7 @@ export interface OverviewRecord {
   id: string;
   notebook_id: string;
   status: OverviewStatus;
+  short_summary: string | null;
   topics: TopicSummary[];
   estimated_minutes: number | null;
   error_reason: string | null;

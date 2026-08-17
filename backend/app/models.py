@@ -123,6 +123,10 @@ class Overview(Base):
         nullable=False,
         default=OverviewStatus.PENDING,
     )
+    # A short, plain-prose "what is this about" (2-3 sentences, no bullet
+    # points) — this is what's shown by default; topics_json below is the
+    # detailed breakdown, tucked behind a UI toggle.
+    short_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     # JSON-encoded list of {title, summary, key_concepts: [str]} — read/written as a
     # whole, never queried piecemeal, so a structured column set would be overkill.
     topics_json: Mapped[str | None] = mapped_column(Text, nullable=True)

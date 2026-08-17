@@ -90,7 +90,13 @@ function App() {
 
             <div className="mb-10">
               {documents.some((doc) => doc.status === "ready") ? (
-                <OverviewPanel notebookId={activeNotebook.id} />
+                <OverviewPanel
+                  notebookId={activeNotebook.id}
+                  watchKey={documents
+                    .map((doc) => `${doc.id}:${doc.status}`)
+                    .sort()
+                    .join(",")}
+                />
               ) : (
                 <HowItWorks />
               )}

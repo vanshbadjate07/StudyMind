@@ -115,6 +115,7 @@ async def migrate_overview_to_notebook_scope() -> None:
                         id VARCHAR(36) NOT NULL,
                         notebook_id VARCHAR(36) NOT NULL,
                         status VARCHAR(10) NOT NULL,
+                        short_summary TEXT,
                         topics_json TEXT,
                         estimated_minutes INTEGER,
                         error_reason VARCHAR(64),
@@ -135,3 +136,25 @@ async def migrate_overview_to_notebook_scope() -> None:
 
     async with db.engine.begin() as conn:
         await conn.execute(text("DROP TABLE IF EXISTS overviews_legacy"))
+
+
+async def migrate_overview_short_summary_column() -> None:
+    """One-time schema patch: adds `overviews.short_summary` for databases
+    that already went through migrate_overview_to_notebook_scope() before
+    this column existed on that migration's CREATE TABLE. A plain additive
+    `ALTER TABLE ADD COLUMN` is safe here (unlike the notebook_id move) since
+    short_summary is nullable with no UNIQUE/NOT NULL constraint to fight
+    SQLite's DROP COLUMN restrictions over. Existing rows just get NULL — a
+    short summary is regenerable content, not source material, so nothing
+    needs backfilling; each notebook gets one the next time its overview
+    regenerates.
+
+    Must run after `migrate_overview_to_notebook_scope()`, since it assumes
+    `overviews.notebook_id` already exists (it's only a documented
+    ordering — nothing here reads notebook_id directly, it's just meaningless
+    to run this against the pre-notebook-scope `overviews` shape)."""
+    async with db.engine.begin() as conn:
+        result = await conn.execute(text("PRAGMA table_info(overviews)"))
+        columns = {row[1] for row in result.fetchall()}
+        if "short_summary" not in columns:
+            await conn.execute(text("ALTER TABLE overviews ADD COLUMN short_summary TEXT"))

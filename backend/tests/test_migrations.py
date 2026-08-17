@@ -5,7 +5,11 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.db as db_module
-from app.migrations import migrate_documents_notebook_column, migrate_overview_to_notebook_scope
+from app.migrations import (
+    migrate_documents_notebook_column,
+    migrate_overview_short_summary_column,
+    migrate_overview_to_notebook_scope,
+)
 from app.models import Document, Notebook, Overview, OverviewStatus
 
 
@@ -314,5 +318,84 @@ async def test_overview_migration_on_a_fresh_database_is_a_noop(
     monkeypatch.setattr(db_module, "async_session_factory", factory)
 
     await migrate_overview_to_notebook_scope()  # must not raise on a table that already has the column
+
+    await engine.dispose()
+
+
+async def test_short_summary_migration_adds_column_to_an_already_rebuilt_table(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Simulates a database that already went through
+    migrate_overview_to_notebook_scope() before short_summary existed on
+    that migration's CREATE TABLE — i.e. the notebook-scoped shape, but
+    missing this one later column."""
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'pre_short_summary.db'}")
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE notebooks (
+                    id VARCHAR(36) PRIMARY KEY, name VARCHAR(255) NOT NULL,
+                    goal_type VARCHAR(20), goal_description TEXT,
+                    created_at DATETIME, updated_at DATETIME
+                )
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE overviews (
+                    id VARCHAR(36) NOT NULL,
+                    notebook_id VARCHAR(36) NOT NULL UNIQUE,
+                    status VARCHAR(10) NOT NULL,
+                    topics_json TEXT,
+                    estimated_minutes INTEGER,
+                    error_reason VARCHAR(64),
+                    error_detail TEXT,
+                    created_at DATETIME DEFAULT (CURRENT_TIMESTAMP) NOT NULL,
+                    updated_at DATETIME DEFAULT (CURRENT_TIMESTAMP) NOT NULL,
+                    PRIMARY KEY (id)
+                )
+                """
+            )
+        )
+        notebook_id = str(uuid.uuid4())
+        await conn.execute(
+            text("INSERT INTO notebooks (id, name) VALUES (:id, 'Test')"), {"id": notebook_id}
+        )
+        overview_id = str(uuid.uuid4())
+        await conn.execute(
+            text(
+                "INSERT INTO overviews (id, notebook_id, status) VALUES (:id, :notebook_id, 'ready')"
+            ),
+            {"id": overview_id, "notebook_id": notebook_id},
+        )
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr(db_module, "engine", engine)
+    monkeypatch.setattr(db_module, "async_session_factory", factory)
+
+    await migrate_overview_short_summary_column()
+
+    async with factory() as session:
+        result = await session.execute(select(Overview))
+        row = result.scalar_one()
+        assert row.short_summary is None  # nothing to backfill, regenerable content
+
+    await migrate_overview_short_summary_column()  # must not error the second time
+    await engine.dispose()
+
+
+async def test_short_summary_migration_on_a_fresh_database_is_a_noop(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'fresh_short_summary.db'}")
+    async with engine.begin() as conn:
+        await conn.run_sync(db_module.Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr(db_module, "engine", engine)
+    monkeypatch.setattr(db_module, "async_session_factory", factory)
+
+    await migrate_overview_short_summary_column()  # must not raise on a table that already has the column
 
     await engine.dispose()

@@ -102,6 +102,7 @@ class TestGenerateOverview:
         )
         response = json.dumps(
             {
+                "short_summary": "A short summary of cell biology.",
                 "topics": [
                     {"title": "Cell Biology", "summary": "Covers cell structure.", "key_concepts": ["nucleus"]}
                 ],
@@ -115,8 +116,28 @@ class TestGenerateOverview:
         row = await _get_overview_row(session, notebook.id)
         assert row.status == OverviewStatus.READY
         assert row.estimated_minutes == 15
+        assert row.short_summary == "A short summary of cell biology."
         topics = json.loads(row.topics_json)
         assert topics[0]["title"] == "Cell Biology"
+
+    async def test_synthesis_response_missing_short_summary_is_invalid(
+        self, session: AsyncSession
+    ) -> None:
+        """short_summary is required in the LLM's response, same as topics —
+        a response missing it is treated as an invalid LLM response and
+        retried, not silently accepted with an empty summary."""
+        notebook = await _create_notebook_with_ready_document(session, ["Some content."])
+        notebook_id = notebook.id
+        malformed = json.dumps(
+            {"topics": [{"title": "T", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
+        )
+        client = ScriptedClient([malformed, malformed])
+
+        await generate_overview(notebook_id, session, client)
+
+        row = await _get_overview_row(session, notebook_id)
+        assert row.status == OverviewStatus.FAILED
+        assert row.error_reason == "invalid_llm_response"
 
     async def test_combines_chunks_from_multiple_documents_in_the_notebook(
         self, session: AsyncSession
@@ -145,7 +166,7 @@ class TestGenerateOverview:
         await session.commit()
 
         response = json.dumps(
-            {"topics": [{"title": "T", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
+            {"short_summary": "s", "topics": [{"title": "T", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
         )
         client = ScriptedClient([response])
 
@@ -185,7 +206,7 @@ class TestGenerateOverview:
         await session.commit()
 
         response = json.dumps(
-            {"topics": [{"title": "T", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
+            {"short_summary": "s", "topics": [{"title": "T", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
         )
         client = ScriptedClient([response])
 
@@ -199,7 +220,7 @@ class TestGenerateOverview:
         notebook = await _create_notebook_with_ready_document(session, chunks)
         section_response = json.dumps({"summary": "A section summary."})
         final_response = json.dumps(
-            {"topics": [{"title": "T", "summary": "s", "key_concepts": ["c"]}], "estimated_minutes": 20}
+            {"short_summary": "s", "topics": [{"title": "T", "summary": "s", "key_concepts": ["c"]}], "estimated_minutes": 20}
         )
         num_sections = len(_build_sections([_chunk(c, i) for i, c in enumerate(chunks)]))
         client = ScriptedClient([section_response] * num_sections + [final_response])
@@ -238,7 +259,7 @@ class TestGenerateOverview:
     async def test_recovers_after_a_transient_malformed_response(self, session: AsyncSession) -> None:
         notebook = await _create_notebook_with_ready_document(session, ["Some content."])
         good_response = json.dumps(
-            {"topics": [{"title": "T", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
+            {"short_summary": "s", "topics": [{"title": "T", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
         )
         client = ScriptedClient(["not valid json", good_response])
 
@@ -285,7 +306,7 @@ class TestGenerateOverview:
         notebook = await _create_notebook_with_ready_document(session, ["Some content."])
         notebook_id = notebook.id
         good_response = json.dumps(
-            {"topics": [{"title": "T", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
+            {"short_summary": "s", "topics": [{"title": "T", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
         )
 
         class DeletingClient:
@@ -374,7 +395,7 @@ class TestAutoTitling:
             session, ["Some content about machine learning."], notebook_name="Untitled"
         )
         synthesis_response = json.dumps(
-            {"topics": [{"title": "Gradient Descent", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
+            {"short_summary": "s", "topics": [{"title": "Gradient Descent", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
         )
         title_response = json.dumps({"title": "Machine Learning Basics"})
         client = ScriptedClient([synthesis_response, title_response])
@@ -389,7 +410,7 @@ class TestAutoTitling:
             session, ["Some content."], notebook_name="Untitled 2"
         )
         synthesis_response = json.dumps(
-            {"topics": [{"title": "T", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
+            {"short_summary": "s", "topics": [{"title": "T", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
         )
         title_response = json.dumps({"title": "Organic Chemistry"})
         client = ScriptedClient([synthesis_response, title_response])
@@ -406,7 +427,7 @@ class TestAutoTitling:
             session, ["Some content."], notebook_name="Learning Python"
         )
         synthesis_response = json.dumps(
-            {"topics": [{"title": "T", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
+            {"short_summary": "s", "topics": [{"title": "T", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
         )
         # Only one response queued — if the client is asked for a title, the
         # test fails with an IndexError, proving auto-titling was skipped.
@@ -423,7 +444,7 @@ class TestAutoTitling:
             session, ["Some content."], notebook_name="Untitled"
         )
         synthesis_response = json.dumps(
-            {"topics": [{"title": "T", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
+            {"short_summary": "s", "topics": [{"title": "T", "summary": "s", "key_concepts": []}], "estimated_minutes": 10}
         )
         client = ScriptedClient([synthesis_response, "not valid json"])
 

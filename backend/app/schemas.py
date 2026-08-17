@@ -65,6 +65,7 @@ class OverviewResult(BaseModel):
     topics, or a nonsensical time estimate) fails validation and is treated
     as an invalid LLM response — not a "successful" empty overview."""
 
+    short_summary: str = Field(min_length=1)
     topics: list[TopicSummary] = Field(min_length=1)
     estimated_minutes: int = Field(gt=0)
 
@@ -85,6 +86,7 @@ class OverviewRead(BaseModel):
     id: str
     notebook_id: str
     status: OverviewStatus
+    short_summary: str | None
     topics: list[TopicSummary]
     estimated_minutes: int | None
     error_reason: str | None
@@ -99,6 +101,7 @@ class OverviewRead(BaseModel):
             id=overview.id,
             notebook_id=overview.notebook_id,
             status=overview.status,
+            short_summary=overview.short_summary,
             topics=[TopicSummary(**topic) for topic in raw_topics],
             estimated_minutes=overview.estimated_minutes,
             error_reason=overview.error_reason,
