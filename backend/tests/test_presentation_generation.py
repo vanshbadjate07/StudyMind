@@ -48,7 +48,17 @@ class UnreachableClient:
 
 
 def _slide(layout: str = "bullets", **overrides) -> dict:
-    base = {"layout": layout, "title": "A slide", "lines": [], "columns": [], "quote": None, "attribution": None}
+    base = {
+        "layout": layout,
+        "title": "A slide",
+        "lines": [],
+        "columns": [],
+        "quote": None,
+        "attribution": None,
+        "nodes": [],
+        "edges": [],
+        "caption": None,
+    }
     if layout == "bullets":
         base["lines"] = ["Point one", "Point two"]
     elif layout in ("two_column", "comparison"):
@@ -58,6 +68,9 @@ def _slide(layout: str = "bullets", **overrides) -> dict:
         ]
     elif layout == "quote":
         base["quote"] = "A memorable statement."
+    elif layout == "diagram":
+        base["nodes"] = [{"label": "Input"}, {"label": "Output"}]
+        base["edges"] = [{"from_index": 0, "to_index": 1, "label": None}]
     base.update(overrides)
     return base
 
@@ -141,6 +154,51 @@ class TestGeneratePresentation:
         row = await _get_presentation_row(session, notebook_id)
         assert row.status == PresentationStatus.READY
         assert row.slide_count == 2  # title + the one good body slide, broken one dropped
+
+    async def test_diagram_slide_with_no_nodes_is_dropped_not_shown(self, session: AsyncSession) -> None:
+        notebook = await _create_notebook_with_ready_document(session, ["Some content."])
+        notebook_id = notebook.id
+        response = json.dumps(
+            {
+                "slides": [
+                    _slide(title="Good slide"),
+                    _slide(layout="diagram", title="Empty diagram", nodes=[], edges=[]),
+                ]
+            }
+        )
+        client = ScriptedClient([response])
+
+        await generate_presentation(notebook_id, session, client)
+
+        row = await _get_presentation_row(session, notebook_id)
+        assert row.status == PresentationStatus.READY
+        assert row.slide_count == 2  # title + the one good body slide, empty diagram dropped
+
+    async def test_diagram_slide_with_out_of_range_edge_still_renders(self, session: AsyncSession) -> None:
+        """An edge referencing a node index that doesn't exist shouldn't sink
+        the whole slide — build_diagram_svg already skips that one edge
+        silently, so the slide (and its valid nodes) still renders."""
+        notebook = await _create_notebook_with_ready_document(session, ["Some content."])
+        notebook_id = notebook.id
+        response = json.dumps(
+            {
+                "slides": [
+                    _slide(
+                        layout="diagram",
+                        title="Diagram with a bad edge",
+                        nodes=[{"label": "A"}, {"label": "B"}],
+                        edges=[{"from_index": 0, "to_index": 99, "label": None}],
+                    )
+                ]
+            }
+        )
+        client = ScriptedClient([response])
+
+        await generate_presentation(notebook_id, session, client)
+
+        row = await _get_presentation_row(session, notebook_id)
+        assert row.status == PresentationStatus.READY
+        assert row.slide_count == 2  # title + the diagram slide
 
     async def test_creates_the_presentation_row_itself_when_none_exists_yet(self, session: AsyncSession) -> None:
         notebook = await _create_notebook_with_ready_document(session, ["Some content."])

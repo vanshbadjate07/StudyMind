@@ -1,8 +1,9 @@
 from pathlib import Path
 
 from pptx import Presentation as PptxPresentation
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 
-from app.schemas import PresentationGenerationResult, SlideColumn, SlideLayout, SlideResult
+from app.schemas import DiagramEdge, DiagramNode, PresentationGenerationResult, SlideColumn, SlideLayout, SlideResult
 from app.services.presentation_renderer import render_presentation
 
 
@@ -141,6 +142,71 @@ class TestRenderPresentation:
 
         text = _all_text(PptxPresentation(str(out)).slides[0])
         assert "Used as the quote text" in text
+
+    def test_diagram_slide_embeds_a_picture_and_shows_heading_and_caption(self, tmp_path: Path) -> None:
+        result = PresentationGenerationResult(
+            slides=[
+                SlideResult(
+                    layout=SlideLayout.DIAGRAM,
+                    title="The Pipeline",
+                    nodes=[DiagramNode(label="Input"), DiagramNode(label="Output")],
+                    edges=[DiagramEdge(from_index=0, to_index=1, label="transform")],
+                    caption="Data flows from input to output.",
+                )
+            ]
+        )
+        out = tmp_path / "deck.pptx"
+
+        render_presentation(result, out, "Notebook")
+
+        slide = PptxPresentation(str(out)).slides[0]
+        pictures = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE]
+        assert len(pictures) == 1
+        text = _all_text(slide)
+        assert "The Pipeline" in text
+        assert "Data flows from input to output." in text
+
+    def test_diagram_picture_stays_within_slide_bounds(self, tmp_path: Path) -> None:
+        result = PresentationGenerationResult(
+            slides=[
+                SlideResult(
+                    layout=SlideLayout.DIAGRAM,
+                    title="Big Diagram",
+                    nodes=[DiagramNode(label=f"Step {i}") for i in range(6)],
+                    edges=[DiagramEdge(from_index=i, to_index=i + 1) for i in range(5)],
+                    caption="Six steps, wrapping across two rows.",
+                )
+            ]
+        )
+        out = tmp_path / "deck.pptx"
+
+        render_presentation(result, out, "Notebook")
+
+        slide = PptxPresentation(str(out)).slides[0]
+        deck = PptxPresentation(str(out))
+        picture = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE)
+        assert picture.left >= 0
+        assert picture.top >= 0
+        assert picture.left + picture.width <= deck.slide_width
+        assert picture.top + picture.height <= deck.slide_height
+
+    def test_diagram_slide_without_caption_has_no_caption_text(self, tmp_path: Path) -> None:
+        result = PresentationGenerationResult(
+            slides=[
+                SlideResult(
+                    layout=SlideLayout.DIAGRAM,
+                    title="No Caption Here",
+                    nodes=[DiagramNode(label="A"), DiagramNode(label="B")],
+                )
+            ]
+        )
+        out = tmp_path / "deck.pptx"
+
+        render_presentation(result, out, "Notebook")
+
+        slide = PptxPresentation(str(out)).slides[0]
+        # heading + accent rule + picture + footer = 4 shapes, no 5th (caption) shape
+        assert len(slide.shapes) == 4
 
     def test_watermark_appears_on_non_title_slides_but_not_the_title_slide(self, tmp_path: Path) -> None:
         result = PresentationGenerationResult(

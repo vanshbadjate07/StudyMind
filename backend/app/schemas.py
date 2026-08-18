@@ -230,11 +230,28 @@ class SlideLayout(str, Enum):
     TWO_COLUMN = "two_column"
     QUOTE = "quote"
     COMPARISON = "comparison"
+    DIAGRAM = "diagram"
 
 
 class SlideColumn(BaseModel):
     heading: str = Field(min_length=1, max_length=80)
     lines: list[str] = Field(min_length=1, max_length=6)
+
+
+class DiagramNode(BaseModel):
+    label: str = Field(min_length=1, max_length=40)
+
+
+class DiagramEdge(BaseModel):
+    """A connection drawn from one node to another, by index into the
+    slide's `nodes` list. The LLM describes structure only (which node
+    connects to which, with what label) — never raw drawing coordinates or
+    markup — so the diagram is always laid out and drawn deterministically
+    in code, never by trusting model-generated graphics."""
+
+    from_index: int = Field(ge=0)
+    to_index: int = Field(ge=0)
+    label: str | None = Field(default=None, max_length=30)
 
 
 class SlideResult(BaseModel):
@@ -250,6 +267,9 @@ class SlideResult(BaseModel):
     lines: list[str] = Field(default_factory=list, max_length=8)  # BULLETS
     columns: list[SlideColumn] = Field(default_factory=list, max_length=2)  # TWO_COLUMN / COMPARISON
     quote: str | None = Field(default=None, max_length=400)  # QUOTE
+    nodes: list[DiagramNode] = Field(default_factory=list, max_length=6)  # DIAGRAM
+    edges: list[DiagramEdge] = Field(default_factory=list, max_length=10)  # DIAGRAM
+    caption: str | None = Field(default=None, max_length=150)  # DIAGRAM
     attribution: str | None = Field(default=None, max_length=100)  # QUOTE
 
 

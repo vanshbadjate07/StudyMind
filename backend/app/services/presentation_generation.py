@@ -35,8 +35,9 @@ _STYLE_CLAUSES: dict[PresentationStyle, str] = {
         "be tested, phrased precisely rather than loosely."
     ),
     PresentationStyle.VISUAL_HEAVY: (
-        " Favor two_column and comparison layouts over plain bullets wherever "
-        "the material allows it, to maximize visual variety across the deck."
+        " Favor two_column, comparison, and especially diagram layouts over "
+        "plain bullets wherever the material allows it, to maximize visual "
+        "variety across the deck."
     ),
 }
 
@@ -46,7 +47,7 @@ PRESENTATION_PROMPT_TEMPLATE = (
     "is added separately) in a logical order that builds understanding "
     "progressively.{style_clause}{focus_clause}\n\n"
     "Respond with ONLY a JSON object matching this exact shape: "
-    '{{"slides": [{{"layout": "bullets" | "two_column" | "quote" | "comparison", '
+    '{{"slides": [{{"layout": "bullets" | "two_column" | "quote" | "comparison" | "diagram", '
     '"title": "string (slide heading; not shown for quote layout)", '
     '"lines": ["string", ...] (bullets layout only: 3-6 short punchy bullet points), '
     '"columns": [{{"heading": "string", "lines": ["string", ...]}}, '
@@ -55,15 +56,28 @@ PRESENTATION_PROMPT_TEMPLATE = (
     '"quote": "string" (quote layout only: one striking sentence pulled or '
     "closely paraphrased from the material), "
     '"attribution": "string or null" (quote layout only: what concept or '
-    "section this idea comes from in the material; omit if there's no natural one)"
+    "section this idea comes from in the material; omit if there's no natural one), "
+    '"nodes": [{{"label": "string"}}, ...] (diagram layout only: 2-6 short '
+    "labels, each a step, component, or stage from the material, in a "
+    "sensible reading order), "
+    '"edges": [{{"from_index": integer, "to_index": integer, '
+    '"label": "string or null"}}, ...] (diagram layout only: which node '
+    "connects to which by its position in the nodes array above (0-indexed), "
+    "optionally labeled with what that connection represents), "
+    '"caption": "string or null" (diagram layout only: one short sentence '
+    "explaining what the diagram shows; omit if the diagram is self-explanatory)"
     "}}]}}.\n\n"
     'Never use a "title" layout — that slide is added separately. Vary which '
     'layout you use across slides rather than making every slide "bullets" — '
     "use two_column or comparison when the material naturally contrasts two "
-    "things, and quote for a single memorable statement. Every slide's "
-    "content must come from the material below — do not invent facts. Bullet "
-    "lines must be short and punchy (under 15 words each), not full "
-    "paragraphs — this is a slide, not a document.\n\n"
+    "things, quote for a single memorable statement, and diagram whenever the "
+    "material describes a process, pipeline, architecture, or sequence of "
+    "steps — diagrams are drawn from the nodes/edges you provide, not free-"
+    "hand, so describe the actual structure precisely rather than treating it "
+    "as another bullet list. Every slide's content must come from the "
+    "material below — do not invent facts. Bullet lines and node labels must "
+    "be short and punchy (bullets under 15 words, node labels under 5 words), "
+    "not full paragraphs — this is a slide, not a document.\n\n"
     "Material:\n{text}"
 )
 
@@ -170,6 +184,12 @@ def _is_renderable_slide(slide: SlideResult) -> bool:
         return len(slide.columns) == 2
     if slide.layout == SlideLayout.BULLETS:
         return len(slide.lines) > 0
+    if slide.layout == SlideLayout.DIAGRAM:
+        # Out-of-range/self-referencing edges are already dropped silently
+        # by build_diagram_svg, so only an empty node list makes a diagram
+        # unrenderable — a lone node with no edges still draws fine as a
+        # single box, which is a legitimate (if minimal) diagram.
+        return len(slide.nodes) > 0
     return True
 
 

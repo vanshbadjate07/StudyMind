@@ -1,3 +1,4 @@
+import io
 from pathlib import Path
 
 from pptx import Presentation as PptxPresentation
@@ -9,6 +10,7 @@ from pptx.slide import Slide
 from pptx.util import Emu, Inches, Pt
 
 from app.schemas import PresentationGenerationResult, SlideResult
+from app.services.diagram_renderer import build_diagram_svg, render_diagram_png
 
 # 16:9 widescreen, matching every modern presentation tool's default.
 SLIDE_WIDTH = Inches(13.333)
@@ -61,6 +63,8 @@ def _render_slide_body(slide: Slide, plan: SlideResult) -> None:
         _render_two_column_slide(slide, plan, contrast=plan.layout.value == "comparison")
     elif plan.layout.value == "quote":
         _render_quote_slide(slide, plan)
+    elif plan.layout.value == "diagram":
+        _render_diagram_slide(slide, plan)
 
 
 def _fill_background(slide: Slide) -> None:
@@ -246,3 +250,43 @@ def _render_quote_slide(slide: Slide, plan: SlideResult) -> None:
         attr_run.font.name = BODY_FONT
         attr_run.font.size = Pt(16)
         attr_run.font.color.rgb = MUTED
+
+
+def _render_diagram_slide(slide: Slide, plan: SlideResult) -> None:
+    _render_heading(slide, plan.title)
+
+    svg, svg_width, svg_height = build_diagram_svg(plan.nodes, plan.edges)
+    png_bytes = render_diagram_png(svg)
+
+    top = Inches(1.8)
+    caption_reserve = Inches(0.6) if plan.caption else Inches(0)
+    available_width = CONTENT_WIDTH
+    available_height = SLIDE_HEIGHT - top - Inches(0.7) - caption_reserve
+
+    # Fit the diagram's natural aspect ratio within the available box
+    # ("object-fit: contain") rather than stretching it — a stretched
+    # diagram would distort the node boxes into non-square rectangles.
+    scale = min(available_width / svg_width, available_height / svg_height)
+    picture_width = Emu(int(svg_width * scale))
+    picture_height = Emu(int(svg_height * scale))
+    left = MARGIN + (available_width - picture_width) // 2
+    picture_top = top + (available_height - picture_height) // 2
+
+    slide.shapes.add_picture(
+        io.BytesIO(png_bytes), left, picture_top, width=picture_width, height=picture_height
+    )
+
+    if plan.caption:
+        caption_box = slide.shapes.add_textbox(
+            MARGIN, SLIDE_HEIGHT - Inches(1.15), CONTENT_WIDTH, Inches(0.5)
+        )
+        caption_tf = caption_box.text_frame
+        caption_tf.word_wrap = True
+        caption_para = caption_tf.paragraphs[0]
+        caption_para.alignment = PP_ALIGN.CENTER
+        caption_run = caption_para.add_run()
+        caption_run.text = plan.caption
+        caption_run.font.name = BODY_FONT
+        caption_run.font.size = Pt(15)
+        caption_run.font.italic = True
+        caption_run.font.color.rgb = MUTED
