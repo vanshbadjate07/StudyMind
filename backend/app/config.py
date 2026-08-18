@@ -29,19 +29,25 @@ class Settings(BaseSettings):
 
     # Cloud LLM provider chain (Cerebras -> Groq -> Gemini): used in
     # production so the app doesn't depend on a locally-running Ollama
-    # instance. A provider is only added to the chain if its API key is set;
-    # with none set (local dev, CI), get_default_llm_client() falls back to
-    # local Ollama below. llm_provider_timeout_seconds is deliberately short
+    # instance. Each provider takes a *list* of API keys, not just one — if
+    # a provider has multiple keys configured (e.g. two free accounts), the
+    # chain tries them in order before moving to the next provider, roughly
+    # doubling that provider's effective daily quota. A provider is only
+    # added to the chain if it has at least one key set; with none set at
+    # all (local dev, CI), get_default_llm_client() falls back to local
+    # Ollama below. llm_provider_timeout_seconds is deliberately short
     # relative to each feature's overall LLM timeout (e.g. quiz's 240s) —
-    # it's a per-provider-attempt timeout within the chain, so one slow
-    # provider fails fast and the chain moves to the next rather than
-    # burning the whole feature timeout on a single hung provider.
-    cerebras_api_key: str | None = None
+    # it's a per-attempt timeout within the chain, so one slow provider/key
+    # fails fast and the chain moves to the next rather than burning the
+    # whole feature timeout on a single hung attempt. Set as JSON arrays in
+    # .env (pydantic-settings' default parsing for tuple fields), matching
+    # how cors_origins below is already set.
+    cerebras_api_keys: tuple[str, ...] = ()
     cerebras_model: str = "gpt-oss-120b"
-    groq_api_key: str | None = None
+    groq_api_keys: tuple[str, ...] = ()
     groq_model: str = "openai/gpt-oss-120b"
-    gemini_api_key: str | None = None
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_api_keys: tuple[str, ...] = ()
+    gemini_model: str = "gemini-3.6-flash"
     llm_provider_timeout_seconds: float = 45.0
 
     ollama_host: str = "http://localhost:11434"

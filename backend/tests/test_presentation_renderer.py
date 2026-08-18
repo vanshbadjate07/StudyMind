@@ -132,6 +132,20 @@ class TestRenderPresentation:
         assert "All models are wrong, but some are useful." in text
         assert "George Box" in text
 
+    def test_quote_slide_with_no_title_still_renders_the_quote(self, tmp_path: Path) -> None:
+        # Regression case: title has no schema-level minimum length, so a
+        # quote slide can validly arrive with title omitted/empty — the
+        # layout never displays title anyway, so this must render cleanly.
+        result = PresentationGenerationResult(
+            slides=[SlideResult(layout=SlideLayout.QUOTE, quote="A quote with no title set at all.")]
+        )
+        out = tmp_path / "deck.pptx"
+
+        render_presentation(result, out, "Notebook")
+
+        text = _all_text(PptxPresentation(str(out)).slides[0])
+        assert "A quote with no title set at all." in text
+
     def test_quote_slide_falls_back_to_title_when_quote_is_missing(self, tmp_path: Path) -> None:
         result = PresentationGenerationResult(
             slides=[SlideResult(layout=SlideLayout.QUOTE, title="Used as the quote text")]

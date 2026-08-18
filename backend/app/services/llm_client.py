@@ -15,35 +15,35 @@ class LLMClient(Protocol):
     async def generate_text(self, prompt: str, *, temperature: float = 0.3) -> str: ...
 
 
-def _build_cloud_providers() -> list[OpenAICompatibleProvider]:
-    """Only providers with an API key configured are included, in priority
-    order: Cerebras first (largest free daily token budget, fastest
-    inference), then Groq, then Gemini."""
-    providers: list[OpenAICompatibleProvider] = []
+def _providers_for(name: str, base_url: str, api_keys: tuple[str, ...], model: str) -> list[OpenAICompatibleProvider]:
+    """One provider entry per key, in the order given — so if a provider has
+    two API keys configured, the chain tries the second key for that same
+    provider before ever moving on to the next provider, roughly doubling
+    that provider's effective daily quota."""
     timeout = settings.llm_provider_timeout_seconds
-    if settings.cerebras_api_key:
-        providers.append(
-            OpenAICompatibleProvider(
-                "cerebras", "https://api.cerebras.ai/v1", settings.cerebras_api_key, settings.cerebras_model, timeout
-            )
-        )
-    if settings.groq_api_key:
-        providers.append(
-            OpenAICompatibleProvider(
-                "groq", "https://api.groq.com/openai/v1", settings.groq_api_key, settings.groq_model, timeout
-            )
-        )
-    if settings.gemini_api_key:
-        providers.append(
-            OpenAICompatibleProvider(
-                "gemini",
-                "https://generativelanguage.googleapis.com/v1beta/openai",
-                settings.gemini_api_key,
-                settings.gemini_model,
-                timeout,
-            )
-        )
-    return providers
+    return [
+        OpenAICompatibleProvider(f"{name}#{i + 1}", base_url, key, model, timeout)
+        for i, key in enumerate(api_keys)
+        if key
+    ]
+
+
+def _build_cloud_providers() -> list[OpenAICompatibleProvider]:
+    """Only providers with at least one API key configured are included, in
+    priority order: Cerebras first (largest free daily token budget,
+    fastest inference), then Groq, then Gemini — each provider's own keys
+    tried in the order they're configured before moving to the next
+    provider."""
+    return [
+        *_providers_for("cerebras", "https://api.cerebras.ai/v1", settings.cerebras_api_keys, settings.cerebras_model),
+        *_providers_for("groq", "https://api.groq.com/openai/v1", settings.groq_api_keys, settings.groq_model),
+        *_providers_for(
+            "gemini",
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            settings.gemini_api_keys,
+            settings.gemini_model,
+        ),
+    ]
 
 
 def get_default_llm_client(

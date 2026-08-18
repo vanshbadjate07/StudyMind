@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.db as db_module
 import app.routers.notebooks as notebooks_module
+from app.config import settings
 from app.main import app
 from app.services.llm_errors import LLMUnreachableError
 from app.services.vector_store import get_vector_store
@@ -25,11 +26,25 @@ class _StubLLMClient:
 
 @pytest.fixture(autouse=True)
 def _stub_ollama_by_default(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> None:
+    # Cloud provider keys are cleared unconditionally, regardless of the
+    # real_ollama marker below — that marker exists to let a test exercise a
+    # real local Ollama instance, not to accidentally make real network
+    # calls to Cerebras/Groq/Gemini using whatever a developer happens to
+    # have in their local backend/.env. Without this, the test suite's
+    # isolation would depend on that file being empty, which stopped being
+    # true the moment real provider keys were added there. A test that
+    # deliberately needs the cloud path (test_llm_client.py) sets its own
+    # keys via monkeypatch on top of this, in the same test function — that
+    # later call wins over this fixture's default.
+    monkeypatch.setattr(settings, "cerebras_api_keys", ())
+    monkeypatch.setattr(settings, "groq_api_keys", ())
+    monkeypatch.setattr(settings, "gemini_api_keys", ())
+
     if "real_ollama" in request.keywords:
         return
     # All three services resolve their default client through
     # app.services.llm_client.get_default_llm_client(), which — with no
-    # cloud provider API keys configured (true in tests) — constructs
+    # cloud provider API keys configured (forced above) — constructs
     # OllamaClient. Patching it here, at its one source, covers all three
     # services in a single patch instead of one per service.
     monkeypatch.setattr(

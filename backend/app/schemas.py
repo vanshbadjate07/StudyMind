@@ -262,7 +262,15 @@ class SlideResult(BaseModel):
     wrong."""
 
     layout: SlideLayout
-    title: str = Field(min_length=1, max_length=120)
+    # No min_length: a real cloud model, told "title isn't shown for quote
+    # layout" in the prompt, reasonably sent an empty string for one rather
+    # than a placeholder — observed live against Groq's gpt-oss-120b, not a
+    # hypothetical. Rejecting that at the schema level failed the entire
+    # deck over one cosmetic field; emptiness for non-quote layouts (which
+    # do need a real heading) is instead caught by
+    # presentation_generation._is_renderable_slide, which drops just that
+    # slide rather than the whole batch.
+    title: str = Field(default="", max_length=120)
     subtitle: str | None = Field(default=None, max_length=200)  # TITLE
     lines: list[str] = Field(default_factory=list, max_length=8)  # BULLETS
     columns: list[SlideColumn] = Field(default_factory=list, max_length=2)  # TWO_COLUMN / COMPARISON

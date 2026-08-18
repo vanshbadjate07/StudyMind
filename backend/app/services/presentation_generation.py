@@ -48,7 +48,8 @@ PRESENTATION_PROMPT_TEMPLATE = (
     "progressively.{style_clause}{focus_clause}\n\n"
     "Respond with ONLY a JSON object matching this exact shape: "
     '{{"slides": [{{"layout": "bullets" | "two_column" | "quote" | "comparison" | "diagram", '
-    '"title": "string (slide heading; not shown for quote layout)", '
+    '"title": "string (always required and non-empty, even for quote layout — '
+    'a short label for the slide, even though quote layout doesn\'t display it)", '
     '"lines": ["string", ...] (bullets layout only: 3-6 short punchy bullet points), '
     '"columns": [{{"heading": "string", "lines": ["string", ...]}}, '
     '{{"heading": "string", "lines": ["string", ...]}}] '
@@ -173,13 +174,23 @@ def _title_slide(notebook_name: str) -> SlideResult:
 
 
 def _is_renderable_slide(slide: SlideResult) -> bool:
-    """The prompt instructs the model on each layout's required fields, but a
-    smaller/faster model doesn't always comply — belt and suspenders, same
-    reasoning as quiz_generation's duplicate-option filter: a structurally
-    incomplete slide (e.g. a two-column layout with only one column) is
-    dropped rather than rendered half-blank. Quote and title layouts always
-    have a safe fallback (the renderer falls back to the slide's title), so
-    they're never dropped here."""
+    """The prompt instructs the model on each layout's required fields, but
+    even a large, capable cloud model doesn't always comply — observed live,
+    not hypothetical: told "title isn't shown for quote layout", Groq's
+    gpt-oss-120b sent an empty title for one, which the schema used to
+    reject outright and fail the whole deck. Belt and suspenders instead,
+    same reasoning as quiz_generation's duplicate-option filter: a
+    structurally incomplete slide (missing title, a two-column layout with
+    only one column, etc.) is dropped rather than rendered broken or
+    crashing the batch.
+
+    Only quote layout's title may legitimately be empty — it's the one
+    layout that never displays it — but quote then needs a quote (or a
+    title as fallback text) to have anything to show at all."""
+    if slide.layout == SlideLayout.QUOTE:
+        return bool((slide.quote or "").strip()) or bool(slide.title.strip())
+    if not slide.title.strip():
+        return False
     if slide.layout in (SlideLayout.TWO_COLUMN, SlideLayout.COMPARISON):
         return len(slide.columns) == 2
     if slide.layout == SlideLayout.BULLETS:

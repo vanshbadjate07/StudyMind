@@ -136,6 +136,63 @@ class TestGeneratePresentation:
         )
         assert "Intro to Machine Learning" in first_slide_text
 
+    async def test_quote_slide_with_an_empty_title_still_renders(self, session: AsyncSession) -> None:
+        """Regression test for a real failure observed live against Groq's
+        gpt-oss-120b: told "title isn't shown for quote layout" in the
+        prompt, it sent title="" for a quote slide. The schema used to
+        require a non-empty title unconditionally and rejected the whole
+        response, failing the entire deck over one cosmetic field."""
+        notebook = await _create_notebook_with_ready_document(session, ["Some content."])
+        notebook_id = notebook.id
+        response = json.dumps(
+            {"slides": [_slide(layout="quote", title="", quote="A real quote from the material.")]}
+        )
+        client = ScriptedClient([response])
+
+        await generate_presentation(notebook_id, session, client)
+
+        row = await _get_presentation_row(session, notebook_id)
+        assert row.status == PresentationStatus.READY
+        assert row.slide_count == 2  # title slide + the quote slide
+
+    async def test_quote_slide_with_empty_title_and_empty_quote_is_dropped(self, session: AsyncSession) -> None:
+        notebook = await _create_notebook_with_ready_document(session, ["Some content."])
+        notebook_id = notebook.id
+        response = json.dumps(
+            {
+                "slides": [
+                    _slide(title="Good slide"),
+                    _slide(layout="quote", title="", quote=None),
+                ]
+            }
+        )
+        client = ScriptedClient([response])
+
+        await generate_presentation(notebook_id, session, client)
+
+        row = await _get_presentation_row(session, notebook_id)
+        assert row.status == PresentationStatus.READY
+        assert row.slide_count == 2  # title + the one good slide, empty quote slide dropped
+
+    async def test_non_quote_slide_with_an_empty_title_is_dropped(self, session: AsyncSession) -> None:
+        notebook = await _create_notebook_with_ready_document(session, ["Some content."])
+        notebook_id = notebook.id
+        response = json.dumps(
+            {
+                "slides": [
+                    _slide(title="Good slide"),
+                    _slide(layout="bullets", title="", lines=["a point"]),
+                ]
+            }
+        )
+        client = ScriptedClient([response])
+
+        await generate_presentation(notebook_id, session, client)
+
+        row = await _get_presentation_row(session, notebook_id)
+        assert row.status == PresentationStatus.READY
+        assert row.slide_count == 2  # title + the one good slide, untitled bullets slide dropped
+
     async def test_a_structurally_incomplete_slide_is_dropped_not_shown(self, session: AsyncSession) -> None:
         notebook = await _create_notebook_with_ready_document(session, ["Some content."])
         notebook_id = notebook.id
