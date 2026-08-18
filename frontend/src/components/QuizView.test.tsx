@@ -113,7 +113,7 @@ describe("QuizView", () => {
 
   it("shows an error with a retry that reopens setup when generation failed", async () => {
     vi.spyOn(api, "getNotebookQuiz").mockResolvedValue(
-      makeQuiz({ status: "failed", error_reason: "ollama_unreachable" }),
+      makeQuiz({ status: "failed", error_reason: "llm_unreachable" }),
     );
     const user = userEvent.setup();
 

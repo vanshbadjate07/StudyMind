@@ -50,7 +50,7 @@ def _ready_notebook(client: TestClient) -> str:
 
 def test_grounded_question_returns_answer_with_citations(client: TestClient, monkeypatch) -> None:
     fake = _FakeTextClient("Backpropagation trains neural networks.")
-    monkeypatch.setattr("app.services.chat.OllamaClient", lambda *a, **k: fake)
+    monkeypatch.setattr("app.services.llm_client.OllamaClient", lambda *a, **k: fake)
     notebook_id = _ready_notebook(client)
 
     response = client.post(
@@ -75,7 +75,7 @@ def test_irrelevant_question_without_internet_mode_still_gets_a_real_answer(
     # there's no fixed canned string anymore, so this must supply a fake
     # client rather than relying on the default (unreachable) stub.
     fake = _FakeTextClient("I don't see a pizza dough recipe in your material.")
-    monkeypatch.setattr("app.services.chat.OllamaClient", lambda *a, **k: fake)
+    monkeypatch.setattr("app.services.llm_client.OllamaClient", lambda *a, **k: fake)
     notebook_id = _ready_notebook(client)
 
     response = client.post(
@@ -94,7 +94,7 @@ def test_irrelevant_question_with_internet_mode_answers_from_general_knowledge(
     client: TestClient, monkeypatch
 ) -> None:
     fake = _FakeTextClient("Pizza dough needs flour, water, yeast, and salt.")
-    monkeypatch.setattr("app.services.chat.OllamaClient", lambda *a, **k: fake)
+    monkeypatch.setattr("app.services.llm_client.OllamaClient", lambda *a, **k: fake)
     notebook_id = _ready_notebook(client)
 
     response = client.post(
@@ -109,7 +109,7 @@ def test_irrelevant_question_with_internet_mode_answers_from_general_knowledge(
     assert body["content"] == "Pizza dough needs flour, water, yeast, and salt."
 
 
-def test_ollama_unreachable_returns_503_but_keeps_the_users_question(client: TestClient) -> None:
+def test_llm_unreachable_returns_503_but_keeps_the_users_question(client: TestClient) -> None:
     # Default stub (from conftest) raises OllamaUnreachableError — a relevant
     # question forces the grounded path, which actually calls it.
     notebook_id = _ready_notebook(client)
@@ -141,7 +141,7 @@ def test_list_messages_missing_notebook_404(client: TestClient) -> None:
 
 def test_list_messages_returns_conversation_in_order(client: TestClient, monkeypatch) -> None:
     fake = _FakeTextClient("An answer.")
-    monkeypatch.setattr("app.services.chat.OllamaClient", lambda *a, **k: fake)
+    monkeypatch.setattr("app.services.llm_client.OllamaClient", lambda *a, **k: fake)
     notebook_id = _ready_notebook(client)
 
     client.post(
@@ -166,7 +166,7 @@ def test_list_messages_empty_for_a_fresh_notebook(client: TestClient) -> None:
 
 
 def test_question_in_a_notebook_with_no_documents_never_calls_ollama(client: TestClient) -> None:
-    # No monkeypatch of app.services.chat.OllamaClient here — conftest's
+    # No monkeypatch of app.services.llm_client.OllamaClient here — conftest's
     # default stub raises OllamaUnreachableError if actually called, so a
     # 201 here proves the LLM was never invoked for this state.
     notebook_id = _create_notebook(client)
@@ -187,7 +187,7 @@ def test_question_in_a_notebook_with_no_documents_and_internet_mode_answers_free
     client: TestClient, monkeypatch
 ) -> None:
     fake = _FakeTextClient("MongoDB is a NoSQL database.")
-    monkeypatch.setattr("app.services.chat.OllamaClient", lambda *a, **k: fake)
+    monkeypatch.setattr("app.services.llm_client.OllamaClient", lambda *a, **k: fake)
     notebook_id = _create_notebook(client)
 
     response = client.post(
@@ -211,7 +211,7 @@ def test_ask_question_rejects_empty_question(client: TestClient) -> None:
 
 def test_edit_question_replaces_it_and_drops_everything_after(client: TestClient, monkeypatch) -> None:
     fake = _FakeTextClient("First answer.")
-    monkeypatch.setattr("app.services.chat.OllamaClient", lambda *a, **k: fake)
+    monkeypatch.setattr("app.services.llm_client.OllamaClient", lambda *a, **k: fake)
     notebook_id = _ready_notebook(client)
 
     first = client.post(
@@ -254,7 +254,7 @@ def test_edit_question_missing_message_404(client: TestClient) -> None:
 
 def test_edit_question_rejects_editing_an_assistant_message(client: TestClient, monkeypatch) -> None:
     fake = _FakeTextClient("An answer.")
-    monkeypatch.setattr("app.services.chat.OllamaClient", lambda *a, **k: fake)
+    monkeypatch.setattr("app.services.llm_client.OllamaClient", lambda *a, **k: fake)
     notebook_id = _ready_notebook(client)
 
     client.post(

@@ -69,18 +69,18 @@ describe("OverviewPanel", () => {
 
   it("shows a human-readable message and retry button when generation failed", async () => {
     vi.spyOn(api, "getNotebookOverview").mockResolvedValue(
-      makeOverview({ status: "failed", error_reason: "ollama_unreachable" }),
+      makeOverview({ status: "failed", error_reason: "llm_unreachable" }),
     );
 
     render(<OverviewPanel notebookId="notebook-1" watchKey="v1" />);
 
     expect(await screen.findByRole("button", { name: /try again/i })).toBeInTheDocument();
-    expect(screen.queryByText("ollama_unreachable")).not.toBeInTheDocument();
+    expect(screen.queryByText("llm_unreachable")).not.toBeInTheDocument();
   });
 
   it("retries generation when 'Try again' is clicked", async () => {
     vi.spyOn(api, "getNotebookOverview").mockResolvedValue(
-      makeOverview({ status: "failed", error_reason: "ollama_unreachable" }),
+      makeOverview({ status: "failed", error_reason: "llm_unreachable" }),
     );
     const regenerateSpy = vi
       .spyOn(api, "regenerateNotebookOverview")

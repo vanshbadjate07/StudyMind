@@ -11,6 +11,8 @@ from app.models import (
     GoalType,
     Overview,
     OverviewStatus,
+    Presentation,
+    PresentationStatus,
     Quiz,
     QuizStatus,
 )
@@ -202,6 +204,84 @@ class QuizRead(TimestampedModel):
             error_detail=quiz.error_detail,
             created_at=quiz.created_at,
             updated_at=quiz.updated_at,
+        )
+
+
+class PresentationStyle(str, Enum):
+    CONCISE = "concise"
+    EXAM_FOCUSED = "exam_focused"
+    VISUAL_HEAVY = "visual_heavy"
+
+
+class PresentationGenerateRequest(BaseModel):
+    slide_count: int = Field(default=10, ge=5, le=30)
+    style: PresentationStyle = PresentationStyle.CONCISE
+    focus: str | None = Field(default=None, max_length=200)
+
+    @field_validator("focus")
+    @classmethod
+    def _blank_focus_is_none(cls, value: str | None) -> str | None:
+        return value.strip() or None if value is not None else None
+
+
+class SlideLayout(str, Enum):
+    TITLE = "title"
+    BULLETS = "bullets"
+    TWO_COLUMN = "two_column"
+    QUOTE = "quote"
+    COMPARISON = "comparison"
+
+
+class SlideColumn(BaseModel):
+    heading: str = Field(min_length=1, max_length=80)
+    lines: list[str] = Field(min_length=1, max_length=6)
+
+
+class SlideResult(BaseModel):
+    """One slide from the LLM's generation output. Which fields matter
+    depends on `layout` — the renderer reads only the fields relevant to
+    that layout and ignores the rest, so the schema stays one flat shape
+    rather than a discriminated union the model would be more likely to get
+    wrong."""
+
+    layout: SlideLayout
+    title: str = Field(min_length=1, max_length=120)
+    subtitle: str | None = Field(default=None, max_length=200)  # TITLE
+    lines: list[str] = Field(default_factory=list, max_length=8)  # BULLETS
+    columns: list[SlideColumn] = Field(default_factory=list, max_length=2)  # TWO_COLUMN / COMPARISON
+    quote: str | None = Field(default=None, max_length=400)  # QUOTE
+    attribution: str | None = Field(default=None, max_length=100)  # QUOTE
+
+
+class PresentationGenerationResult(BaseModel):
+    slides: list[SlideResult] = Field(min_length=1)
+
+
+class PresentationRead(TimestampedModel):
+    id: str
+    notebook_id: str
+    status: PresentationStatus
+    slide_count: int | None
+    style: str | None
+    focus: str | None
+    error_reason: str | None
+    error_detail: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_model(cls, presentation: Presentation) -> "PresentationRead":
+        return cls(
+            id=presentation.id,
+            notebook_id=presentation.notebook_id,
+            status=presentation.status,
+            slide_count=presentation.slide_count,
+            style=presentation.style,
+            focus=presentation.focus,
+            error_reason=presentation.error_reason,
+            error_detail=presentation.error_detail,
+            created_at=presentation.created_at,
+            updated_at=presentation.updated_at,
         )
 
 

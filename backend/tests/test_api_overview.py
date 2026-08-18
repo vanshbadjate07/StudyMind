@@ -74,13 +74,13 @@ def test_overview_starts_automatically_and_fails_cleanly_without_ollama(client: 
     # Document.status is unaffected.
     overview = _poll_overview_settled(client, notebook_id)
     assert overview["status"] == "failed"
-    assert overview["error_reason"] == "ollama_unreachable"
+    assert overview["error_reason"] == "llm_unreachable"
     assert client.get(f"/documents/{document_id}").json()["status"] == "ready"
 
 
 def test_overview_ready_with_topics_when_llm_succeeds(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.services.overview_generation.OllamaClient", lambda *a, **k: _FakeReadyClient()
+        "app.services.llm_client.OllamaClient", lambda *a, **k: _FakeReadyClient()
     )
 
     notebook_id = _create_notebook(client)
@@ -98,7 +98,7 @@ def test_overview_combines_multiple_documents_in_the_same_notebook(
     client: TestClient, monkeypatch
 ) -> None:
     monkeypatch.setattr(
-        "app.services.overview_generation.OllamaClient", lambda *a, **k: _FakeReadyClient()
+        "app.services.llm_client.OllamaClient", lambda *a, **k: _FakeReadyClient()
     )
 
     notebook_id = _create_notebook(client)
@@ -174,7 +174,7 @@ def test_regenerate_overview_after_failure_can_succeed(client: TestClient, monke
     assert first["status"] == "failed"
 
     monkeypatch.setattr(
-        "app.services.overview_generation.OllamaClient",
+        "app.services.llm_client.OllamaClient",
         lambda *a, **k: _FakeReadyClient(title="Recovered", estimated_minutes=8),
     )
 
@@ -206,7 +206,7 @@ def test_deleting_one_of_several_documents_regenerates_the_overview(
     client: TestClient, monkeypatch
 ) -> None:
     monkeypatch.setattr(
-        "app.services.overview_generation.OllamaClient", lambda *a, **k: _FakeReadyClient()
+        "app.services.llm_client.OllamaClient", lambda *a, **k: _FakeReadyClient()
     )
 
     notebook_id = _create_notebook(client)

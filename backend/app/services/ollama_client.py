@@ -2,13 +2,14 @@ import httpx
 from ollama import AsyncClient
 
 from app.config import settings
+from app.services.llm_errors import LLMTimeoutError, LLMUnreachableError
 
 
-class OllamaUnreachableError(Exception):
+class OllamaUnreachableError(LLMUnreachableError):
     """Ollama isn't running or isn't reachable at the configured host."""
 
 
-class OllamaTimeoutError(Exception):
+class OllamaTimeoutError(LLMTimeoutError):
     """Ollama accepted the request but didn't respond within the configured timeout."""
 
 

@@ -8,11 +8,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.errors import OverviewGenerationError
 from app.models import Chunk, Document, DocumentStatus, Notebook, Overview, OverviewStatus
 from app.schemas import OverviewResult, SectionSummary, TitleSuggestion
-from app.services.ollama_client import OllamaClient, OllamaTimeoutError, OllamaUnreachableError
+from app.services.llm_client import LLMClient, get_default_llm_client
+from app.services.llm_errors import LLMTimeoutError, LLMUnreachableError
+from app.services.section_splitting import build_sections
 
 MAX_RETRIES = 2
 
@@ -81,7 +82,7 @@ def _lock_for(notebook_id: str) -> asyncio.Lock:
 async def generate_overview(
     notebook_id: str,
     session: AsyncSession,
-    client: OllamaClient | None = None,
+    client: LLMClient | None = None,
 ) -> None:
     """Runs section-building -> (map ->) synthesize for one notebook, combining
     every ready document it contains into a single overview, always resolving
@@ -93,7 +94,7 @@ async def generate_overview(
     processed document back to FAILED."""
     async with _lock_for(notebook_id):
         try:
-            await _generate_overview_body(notebook_id, session, client or OllamaClient())
+            await _generate_overview_body(notebook_id, session, client or get_default_llm_client())
         except Exception as exc:
             try:
                 await _mark_failed(session, notebook_id, "generation_error", str(exc))
@@ -128,7 +129,7 @@ async def maybe_regenerate_notebook_overview(notebook_id: str, session: AsyncSes
 
 
 async def _generate_overview_body(
-    notebook_id: str, session: AsyncSession, client: OllamaClient
+    notebook_id: str, session: AsyncSession, client: LLMClient
 ) -> None:
     if await session.get(Notebook, notebook_id) is None:
         return
@@ -147,7 +148,7 @@ async def _generate_overview_body(
 
     try:
         chunks = await _load_chunks(session, notebook_id)
-        sections = _build_sections(chunks)
+        sections = build_sections(chunks)
         if not sections:
             raise OverviewGenerationError(
                 "no_content", "Notebook has no ready documents to summarize."
@@ -161,47 +162,13 @@ async def _generate_overview_body(
         await _mark_ready(session, notebook_id, result, client)
     except OverviewGenerationError as exc:
         await _mark_failed(session, notebook_id, exc.reason, exc.detail)
-    except OllamaUnreachableError as exc:
-        await _mark_failed(session, notebook_id, "ollama_unreachable", str(exc))
-    except OllamaTimeoutError as exc:
-        await _mark_failed(session, notebook_id, "ollama_timeout", str(exc))
+    except LLMUnreachableError as exc:
+        await _mark_failed(session, notebook_id, "llm_unreachable", str(exc))
+    except LLMTimeoutError as exc:
+        await _mark_failed(session, notebook_id, "llm_timeout", str(exc))
 
 
-def _build_sections(chunks: list[Chunk]) -> list[str]:
-    """Splits chunk text into contiguous sections covering the whole notebook.
-    Small notebooks get a single section (one LLM call). Larger ones are split
-    so each section stays under `overview_max_section_chars` (keeping every
-    call well within the model's context budget), while the total section
-    count is capped at `overview_max_sections` so a huge notebook still costs
-    a bounded number of LLM calls — the cap is only exceeded (by letting the
-    final section grow) for material so large that even the max section count
-    can't otherwise keep every section under the char cap, trading a single
-    oversized final section for never silently dropping content."""
-    if not chunks:
-        return []
-
-    total_chars = sum(len(chunk.text) for chunk in chunks)
-    if total_chars <= settings.overview_single_pass_char_budget:
-        return ["\n\n".join(chunk.text for chunk in chunks)]
-
-    sections: list[str] = []
-    current: list[str] = []
-    current_chars = 0
-    for chunk in chunks:
-        would_exceed_cap = current_chars + len(chunk.text) > settings.overview_max_section_chars
-        under_section_limit = len(sections) < settings.overview_max_sections - 1
-        if current and would_exceed_cap and under_section_limit:
-            sections.append("\n\n".join(current))
-            current = []
-            current_chars = 0
-        current.append(chunk.text)
-        current_chars += len(chunk.text)
-    if current:
-        sections.append("\n\n".join(current))
-    return sections
-
-
-async def _generate_overview_content(client: OllamaClient, sections: list[str]) -> OverviewResult:
+async def _generate_overview_content(client: LLMClient, sections: list[str]) -> OverviewResult:
     if len(sections) == 1:
         synthesis_input = sections[0]
     else:
@@ -212,18 +179,18 @@ async def _generate_overview_content(client: OllamaClient, sections: list[str]) 
     return await _synthesize_overview(client, synthesis_input)
 
 
-async def _summarize_section(client: OllamaClient, section_text: str) -> str:
+async def _summarize_section(client: LLMClient, section_text: str) -> str:
     prompt = SECTION_PROMPT_TEMPLATE.format(text=section_text)
     parsed = await _call_with_retry(client, prompt, SectionSummary)
     return parsed.summary
 
 
-async def _synthesize_overview(client: OllamaClient, material_text: str) -> OverviewResult:
+async def _synthesize_overview(client: LLMClient, material_text: str) -> OverviewResult:
     prompt = SYNTHESIS_PROMPT_TEMPLATE.format(text=material_text)
     return await _call_with_retry(client, prompt, OverviewResult)
 
 
-async def _call_with_retry[T: BaseModel](client: OllamaClient, prompt: str, schema: type[T]) -> T:
+async def _call_with_retry[T: BaseModel](client: LLMClient, prompt: str, schema: type[T]) -> T:
     last_detail = ""
     for _ in range(MAX_RETRIES):
         raw = await client.generate_json(prompt)
@@ -235,7 +202,7 @@ async def _call_with_retry[T: BaseModel](client: OllamaClient, prompt: str, sche
 
 
 async def _maybe_autoname_notebook(
-    session: AsyncSession, notebook_id: str, result: OverviewResult, client: OllamaClient
+    session: AsyncSession, notebook_id: str, result: OverviewResult, client: LLMClient
 ) -> None:
     """Best-effort: renames the notebook from its auto-generated default
     ("Untitled" / "Untitled N") to something content-derived, so users don't
@@ -293,7 +260,7 @@ async def _load_chunks(session: AsyncSession, notebook_id: str) -> list[Chunk]:
 
 
 async def _mark_ready(
-    session: AsyncSession, notebook_id: str, result: OverviewResult, client: OllamaClient
+    session: AsyncSession, notebook_id: str, result: OverviewResult, client: LLMClient
 ) -> None:
     overview = await _get_overview(session, notebook_id)
     if overview is None:

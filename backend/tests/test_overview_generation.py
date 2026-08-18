@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.db import Base
 from app.models import Chunk, Document, DocumentStatus, Notebook, Overview, OverviewStatus
 from app.services.ollama_client import OllamaUnreachableError
-from app.services.overview_generation import _build_sections, generate_overview
+from app.services.overview_generation import generate_overview
+from app.services.section_splitting import build_sections
 
 
 @pytest.fixture
@@ -62,32 +63,6 @@ async def _create_notebook_with_ready_document(
         session.add(Chunk(document_id=doc.id, chunk_index=i, text=text, page_number=1))
     await session.commit()
     return notebook
-
-
-class TestBuildSections:
-    def test_small_document_returns_a_single_section(self) -> None:
-        chunks = [_chunk("A short chunk of text.", 0)]
-        sections = _build_sections(chunks)
-        assert len(sections) == 1
-        assert sections[0] == "A short chunk of text."
-
-    def test_large_document_splits_into_bounded_sections(self) -> None:
-        # ~40,000 chars total, well over the single-pass budget and the target
-        # per-section size, so this should hit the max-section cap, not one
-        # section per chunk.
-        chunks = [_chunk("word " * 200, i) for i in range(40)]
-        sections = _build_sections(chunks)
-        assert 1 < len(sections) <= 8
-
-    def test_sections_together_cover_the_whole_document(self) -> None:
-        chunks = [_chunk(f"unique-marker-{i} " * 100, i) for i in range(20)]
-        sections = _build_sections(chunks)
-        combined = "\n\n".join(sections)
-        for i in range(20):
-            assert f"unique-marker-{i}" in combined
-
-    def test_empty_chunk_list_returns_no_sections(self) -> None:
-        assert _build_sections([]) == []
 
 
 async def _get_overview_row(session: AsyncSession, notebook_id: str) -> Overview | None:
@@ -222,7 +197,7 @@ class TestGenerateOverview:
         final_response = json.dumps(
             {"short_summary": "s", "topics": [{"title": "T", "summary": "s", "key_concepts": ["c"]}], "estimated_minutes": 20}
         )
-        num_sections = len(_build_sections([_chunk(c, i) for i, c in enumerate(chunks)]))
+        num_sections = len(build_sections([_chunk(c, i) for i, c in enumerate(chunks)]))
         client = ScriptedClient([section_response] * num_sections + [final_response])
 
         await generate_overview(notebook.id, session, client)
@@ -232,7 +207,7 @@ class TestGenerateOverview:
         # one map call per section, plus exactly one reduce/synthesis call
         assert len(client.calls) == num_sections + 1
 
-    async def test_ollama_unreachable_fails_with_specific_reason(self, session: AsyncSession) -> None:
+    async def test_llm_unreachable_fails_with_specific_reason(self, session: AsyncSession) -> None:
         notebook = await _create_notebook_with_ready_document(session, ["Some content."])
         notebook_id = notebook.id
 
@@ -240,7 +215,7 @@ class TestGenerateOverview:
 
         row = await _get_overview_row(session, notebook_id)
         assert row.status == OverviewStatus.FAILED
-        assert row.error_reason == "ollama_unreachable"
+        assert row.error_reason == "llm_unreachable"
 
     async def test_malformed_json_retries_then_fails_with_specific_reason(
         self, session: AsyncSession

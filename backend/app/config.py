@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     data_dir: Path = BACKEND_DIR / "data"
     uploads_dir: Path = BACKEND_DIR / "data" / "uploads"
+    presentations_dir: Path = BACKEND_DIR / "data" / "presentations"
     chroma_dir: Path = BACKEND_DIR / "data" / "chroma"
     database_url: str = f"sqlite+aiosqlite:///{BACKEND_DIR / 'data' / 'studymind.db'}"
 
@@ -25,6 +26,23 @@ class Settings(BaseSettings):
     chroma_collection_name: str = "document_chunks"
 
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
+
+    # Cloud LLM provider chain (Cerebras -> Groq -> Gemini): used in
+    # production so the app doesn't depend on a locally-running Ollama
+    # instance. A provider is only added to the chain if its API key is set;
+    # with none set (local dev, CI), get_default_llm_client() falls back to
+    # local Ollama below. llm_provider_timeout_seconds is deliberately short
+    # relative to each feature's overall LLM timeout (e.g. quiz's 240s) —
+    # it's a per-provider-attempt timeout within the chain, so one slow
+    # provider fails fast and the chain moves to the next rather than
+    # burning the whole feature timeout on a single hung provider.
+    cerebras_api_key: str | None = None
+    cerebras_model: str = "gpt-oss-120b"
+    groq_api_key: str | None = None
+    groq_model: str = "openai/gpt-oss-120b"
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.5-flash"
+    llm_provider_timeout_seconds: float = 45.0
 
     ollama_host: str = "http://localhost:11434"
     overview_model: str = "qwen2.5:3b"
@@ -68,7 +86,16 @@ class Settings(BaseSettings):
     # conversation context for follow-up questions.
     chat_history_messages: int = 8
 
+    # Reuses the overview_* sizing settings for splitting material into
+    # LLM-sized sections, same as quiz. A larger timeout than quiz's, since
+    # a slide plan is a heavier structured output (title + subtitle/lines/
+    # columns per slide across up to 30 slides) than quiz's 4-options-plus-
+    # explanation shape.
+    presentation_slide_count: int = 10
+    presentation_llm_timeout_seconds: float = 300.0
+
 
 settings = Settings()
 settings.uploads_dir.mkdir(parents=True, exist_ok=True)
+settings.presentations_dir.mkdir(parents=True, exist_ok=True)
 settings.chroma_dir.mkdir(parents=True, exist_ok=True)

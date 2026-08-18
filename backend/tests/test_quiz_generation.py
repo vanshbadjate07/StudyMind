@@ -8,7 +8,7 @@ from app.db import Base
 from app.models import Chunk, Document, DocumentStatus, Notebook, Quiz, QuizStatus
 from app.schemas import QuizDifficulty, QuizGenerateRequest, QuizQuestionResult
 from app.services.ollama_client import OllamaUnreachableError
-from app.services.quiz_generation import _build_sections, _has_duplicate_options, generate_quiz
+from app.services.quiz_generation import _has_duplicate_options, generate_quiz
 
 
 @pytest.fixture
@@ -20,10 +20,6 @@ async def session() -> AsyncSession:
     async with factory() as s:
         yield s
     await engine.dispose()
-
-
-def _chunk(text: str, index: int) -> Chunk:
-    return Chunk(id=f"chunk-{index}", document_id="doc-1", chunk_index=index, text=text, page_number=1)
 
 
 class ScriptedClient:
@@ -76,22 +72,6 @@ async def _create_notebook_with_ready_document(
 async def _get_quiz_row(session: AsyncSession, notebook_id: str) -> Quiz | None:
     result = await session.execute(select(Quiz).where(Quiz.notebook_id == notebook_id))
     return result.scalar_one_or_none()
-
-
-class TestBuildSections:
-    def test_small_document_returns_a_single_section(self) -> None:
-        chunks = [_chunk("A short chunk of text.", 0)]
-        sections = _build_sections(chunks)
-        assert len(sections) == 1
-        assert sections[0] == "A short chunk of text."
-
-    def test_large_document_splits_into_bounded_sections(self) -> None:
-        chunks = [_chunk("word " * 200, i) for i in range(40)]
-        sections = _build_sections(chunks)
-        assert 1 < len(sections) <= 8
-
-    def test_empty_chunk_list_returns_no_sections(self) -> None:
-        assert _build_sections([]) == []
 
 
 class TestHasDuplicateOptions:
@@ -166,7 +146,7 @@ class TestGenerateQuiz:
 
         assert await _get_quiz_row(session, notebook_id) is not None
 
-    async def test_ollama_unreachable_marks_quiz_failed(self, session: AsyncSession) -> None:
+    async def test_llm_unreachable_marks_quiz_failed(self, session: AsyncSession) -> None:
         notebook = await _create_notebook_with_ready_document(session, ["Some content."])
         notebook_id = notebook.id
 
@@ -174,7 +154,7 @@ class TestGenerateQuiz:
 
         row = await _get_quiz_row(session, notebook_id)
         assert row.status == QuizStatus.FAILED
-        assert row.error_reason == "ollama_unreachable"
+        assert row.error_reason == "llm_unreachable"
 
     async def test_invalid_llm_response_marks_quiz_failed_after_retrying(self, session: AsyncSession) -> None:
         notebook = await _create_notebook_with_ready_document(session, ["Some content."])

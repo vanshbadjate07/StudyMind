@@ -6,7 +6,7 @@ from app.db import get_session
 from app.models import ChatMessage, ChatRole, Notebook
 from app.schemas import ChatAskRequest, ChatMessageList, ChatMessageRead
 from app.services.chat import ask_question, edit_question
-from app.services.ollama_client import OllamaTimeoutError, OllamaUnreachableError
+from app.services.llm_errors import LLMTimeoutError, LLMUnreachableError
 
 router = APIRouter(prefix="/notebooks/{notebook_id}/chat", tags=["chat"])
 
@@ -40,7 +40,7 @@ async def ask_chat_question(
         assistant_message = await ask_question(
             notebook, body.question, body.internet_mode, session
         )
-    except (OllamaUnreachableError, OllamaTimeoutError) as exc:
+    except (LLMUnreachableError, LLMTimeoutError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Couldn't reach the AI service — your question was saved, please try again.",
@@ -67,7 +67,7 @@ async def edit_chat_question(
 
     try:
         assistant_message = await edit_question(notebook, target, body.question, body.internet_mode, session)
-    except (OllamaUnreachableError, OllamaTimeoutError) as exc:
+    except (LLMUnreachableError, LLMTimeoutError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Couldn't reach the AI service — your edited question was saved, please try again.",

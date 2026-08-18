@@ -16,7 +16,7 @@ from app.models import (
     Overview,
     OverviewStatus,
 )
-from app.services.ollama_client import OllamaClient
+from app.services.llm_client import LLMClient, get_default_llm_client
 from app.services.vector_store import VectorSearchResult, VectorStore, get_vector_store
 
 GOAL_PROMPT_HINTS: dict[GoalType, str] = {
@@ -221,7 +221,7 @@ async def ask_question(
     internet_mode: bool,
     session: AsyncSession,
     vector_store: VectorStore | None = None,
-    client: OllamaClient | None = None,
+    client: LLMClient | None = None,
 ) -> ChatMessage:
     """Answers one question against a notebook's material, persisting both
     the user's question and the assistant's reply. With at least one ready
@@ -241,14 +241,14 @@ async def ask_question(
     strips the citations/grounded flag rather than presenting a refusal as
     if it were a sourced answer.
 
-    Raises OllamaUnreachableError / OllamaTimeoutError if the LLM call fails —
-    the caller decides how to surface that; the user's question is already
+    Raises LLMUnreachableError / LLMTimeoutError if the LLM call fails — the
+    caller decides how to surface that; the user's question is already
     persisted by that point regardless."""
     vector_store = vector_store or get_vector_store()
-    client = client or OllamaClient(
-        model=settings.chat_model,
-        timeout=settings.chat_llm_timeout_seconds,
-        num_ctx=settings.chat_context_tokens,
+    client = client or get_default_llm_client(
+        ollama_model=settings.chat_model,
+        ollama_timeout=settings.chat_llm_timeout_seconds,
+        ollama_num_ctx=settings.chat_context_tokens,
     )
 
     history_result = await session.execute(
@@ -361,7 +361,7 @@ async def edit_question(
     internet_mode: bool,
     session: AsyncSession,
     vector_store: VectorStore | None = None,
-    client: OllamaClient | None = None,
+    client: LLMClient | None = None,
 ) -> ChatMessage:
     """Edits a past question in place, the way Claude/ChatGPT do it: the
     edited question becomes the new end of the conversation, and everything

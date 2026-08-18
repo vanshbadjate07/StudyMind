@@ -10,7 +10,9 @@ from app.config import settings
 from app.errors import QuizGenerationError
 from app.models import Chunk, Document, DocumentStatus, Notebook, Quiz, QuizStatus
 from app.schemas import QuizDifficulty, QuizGenerateRequest, QuizGenerationResult, QuizQuestionResult
-from app.services.ollama_client import OllamaClient, OllamaTimeoutError, OllamaUnreachableError
+from app.services.llm_client import LLMClient, get_default_llm_client
+from app.services.llm_errors import LLMTimeoutError, LLMUnreachableError
+from app.services.section_splitting import build_sections
 
 MAX_RETRIES = 2
 
@@ -83,7 +85,7 @@ def _focus_clause(focus: str | None) -> str:
 async def generate_quiz(
     notebook_id: str,
     session: AsyncSession,
-    client: OllamaClient | None = None,
+    client: LLMClient | None = None,
     *,
     options: QuizGenerateRequest = DEFAULT_OPTIONS,
 ) -> None:
@@ -102,7 +104,7 @@ async def generate_quiz(
         await _generate_quiz_body(
             notebook_id,
             session,
-            client or OllamaClient(timeout=settings.quiz_llm_timeout_seconds),
+            client or get_default_llm_client(ollama_timeout=settings.quiz_llm_timeout_seconds),
             options,
         )
     except Exception as exc:
@@ -113,7 +115,7 @@ async def generate_quiz(
 
 
 async def _generate_quiz_body(
-    notebook_id: str, session: AsyncSession, client: OllamaClient, options: QuizGenerateRequest
+    notebook_id: str, session: AsyncSession, client: LLMClient, options: QuizGenerateRequest
 ) -> None:
     if await session.get(Notebook, notebook_id) is None:
         return
@@ -132,7 +134,7 @@ async def _generate_quiz_body(
 
     try:
         chunks = await _load_chunks(session, notebook_id)
-        sections = _build_sections(chunks)
+        sections = build_sections(chunks)
         if not sections:
             raise QuizGenerationError("no_content", "Notebook has no ready documents to quiz on.")
 
@@ -146,39 +148,10 @@ async def _generate_quiz_body(
         await _mark_ready(session, notebook_id, questions)
     except QuizGenerationError as exc:
         await _mark_failed(session, notebook_id, exc.reason, exc.detail)
-    except OllamaUnreachableError as exc:
-        await _mark_failed(session, notebook_id, "ollama_unreachable", str(exc))
-    except OllamaTimeoutError as exc:
-        await _mark_failed(session, notebook_id, "ollama_timeout", str(exc))
-
-
-def _build_sections(chunks: list[Chunk]) -> list[str]:
-    """Same splitting strategy as overview_generation._build_sections
-    (reuses its sizing settings) — small notebooks get a single section (one
-    LLM call), larger ones are split so each stays under
-    overview_max_section_chars, capped at overview_max_sections total."""
-    if not chunks:
-        return []
-
-    total_chars = sum(len(chunk.text) for chunk in chunks)
-    if total_chars <= settings.overview_single_pass_char_budget:
-        return ["\n\n".join(chunk.text for chunk in chunks)]
-
-    sections: list[str] = []
-    current: list[str] = []
-    current_chars = 0
-    for chunk in chunks:
-        would_exceed_cap = current_chars + len(chunk.text) > settings.overview_max_section_chars
-        under_section_limit = len(sections) < settings.overview_max_sections - 1
-        if current and would_exceed_cap and under_section_limit:
-            sections.append("\n\n".join(current))
-            current = []
-            current_chars = 0
-        current.append(chunk.text)
-        current_chars += len(chunk.text)
-    if current:
-        sections.append("\n\n".join(current))
-    return sections
+    except LLMUnreachableError as exc:
+        await _mark_failed(session, notebook_id, "llm_unreachable", str(exc))
+    except LLMTimeoutError as exc:
+        await _mark_failed(session, notebook_id, "llm_timeout", str(exc))
 
 
 _NON_ALPHANUMERIC = re.compile(r"[^a-z0-9]")
@@ -212,7 +185,7 @@ def _drop_duplicate_option_questions(questions: list[QuizQuestionResult]) -> lis
 
 
 async def _generate_questions(
-    client: OllamaClient, sections: list[str], options: QuizGenerateRequest
+    client: LLMClient, sections: list[str], options: QuizGenerateRequest
 ) -> list[QuizQuestionResult]:
     target = options.question_count
     knowledge_clause = _knowledge_clause(options.allow_general_knowledge)
@@ -247,7 +220,7 @@ async def _generate_questions(
     return all_questions[:target]
 
 
-async def _call_with_retry[T: BaseModel](client: OllamaClient, prompt: str, schema: type[T]) -> T:
+async def _call_with_retry[T: BaseModel](client: LLMClient, prompt: str, schema: type[T]) -> T:
     last_detail = ""
     for _ in range(MAX_RETRIES):
         raw = await client.generate_json(prompt)

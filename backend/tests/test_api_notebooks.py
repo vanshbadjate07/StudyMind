@@ -132,7 +132,7 @@ class TestNotebookDelete:
             async def generate_text(self, prompt: str, *, temperature: float = 0.3) -> str:
                 return "An answer."
 
-        monkeypatch.setattr("app.services.chat.OllamaClient", lambda *a, **k: _FakeTextClient())
+        monkeypatch.setattr("app.services.llm_client.OllamaClient", lambda *a, **k: _FakeTextClient())
         notebook_id = _create_notebook(client)
         client.post(
             f"/notebooks/{notebook_id}/chat/messages",

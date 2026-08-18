@@ -107,7 +107,7 @@ describe("useOverview", () => {
     // switching notebooks before the POST resolves, used to let the stale
     // response silently overwrite the newly-selected notebook's state.
     vi.spyOn(api, "getNotebookOverview").mockImplementation(async (id: string) =>
-      makeOverview({ notebook_id: id, status: "failed", error_reason: "ollama_unreachable" }),
+      makeOverview({ notebook_id: id, status: "failed", error_reason: "llm_unreachable" }),
     );
     let resolveRegenerate: (value: api.OverviewRecord) => void = () => {};
     vi.spyOn(api, "regenerateNotebookOverview").mockImplementation(

@@ -34,6 +34,13 @@ class QuizStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+class PresentationStatus(str, enum.Enum):
+    PENDING = "pending"
+    GENERATING = "generating"
+    READY = "ready"
+    FAILED = "failed"
+
+
 class GoalType(str, enum.Enum):
     EXAM = "exam"
     INTERVIEW = "interview"
@@ -218,6 +225,41 @@ class Quiz(Base):
     # explanation} — read/written as a whole, never queried piecemeal, same
     # reasoning as Overview.topics_json.
     questions_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Presentation(Base):
+    """One presentation per notebook, generated on demand from every ready
+    document it contains — same regeneration model as Quiz (user-triggered,
+    not auto-regenerated when documents change), not Overview. Unlike
+    Quiz/Overview, the generated result is a file on disk rather than JSON in
+    this row — file_path points at it, mirroring how Document.file_path
+    points at an uploaded source file."""
+
+    __tablename__ = "presentations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    notebook_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("notebooks.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    status: Mapped[PresentationStatus] = mapped_column(
+        Enum(PresentationStatus, values_callable=_enum_values),
+        nullable=False,
+        default=PresentationStatus.PENDING,
+    )
+    slide_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    style: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    focus: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -102,13 +102,13 @@ def test_generate_quiz_fails_cleanly_without_ollama(client: TestClient) -> None:
     # important thing is the quiz pipeline still resolves cleanly.
     quiz = _poll_quiz_settled(client, notebook_id)
     assert quiz["status"] == "failed"
-    assert quiz["error_reason"] == "ollama_unreachable"
+    assert quiz["error_reason"] == "llm_unreachable"
     assert client.get(f"/documents/{document_id}").json()["status"] == "ready"
 
 
 def test_generate_quiz_ready_with_questions_when_llm_succeeds(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.services.quiz_generation.OllamaClient", lambda *a, **k: _FakeReadyClient(question_count=3)
+        "app.services.llm_client.OllamaClient", lambda *a, **k: _FakeReadyClient(question_count=3)
     )
 
     notebook_id = _create_notebook(client)
@@ -127,7 +127,7 @@ def test_generate_quiz_ready_with_questions_when_llm_succeeds(client: TestClient
 
 def test_generate_quiz_passes_customization_options_to_the_prompt(client: TestClient, monkeypatch) -> None:
     fake = _FakeReadyClient(question_count=5)
-    monkeypatch.setattr("app.services.quiz_generation.OllamaClient", lambda *a, **k: fake)
+    monkeypatch.setattr("app.services.llm_client.OllamaClient", lambda *a, **k: fake)
 
     notebook_id = _create_notebook(client)
     document_id = _upload(client, notebook_id, "normal.pdf")
@@ -148,7 +148,11 @@ def test_generate_quiz_passes_customization_options_to_the_prompt(client: TestCl
     assert quiz["status"] == "ready"
     assert len(quiz["questions"]) == 5
 
-    prompt = fake.prompts[0].lower()
+    # Document upload also triggers overview generation, which now shares
+    # this same patched client — so prompts may include an overview prompt
+    # ahead of the quiz one; pick out the quiz prompt by its own content
+    # rather than assuming index 0.
+    prompt = next(p for p in fake.prompts if "multiple-choice quiz" in p.lower()).lower()
     assert "exactly 5 questions" in prompt
     assert "reasoning about the material" in prompt  # hard-difficulty clause
     assert "own general knowledge" in prompt  # general-knowledge clause
@@ -166,7 +170,7 @@ def test_generate_quiz_rejects_out_of_range_question_count(client: TestClient) -
 
 def test_generate_quiz_with_no_body_uses_defaults(client: TestClient, monkeypatch) -> None:
     fake = _FakeReadyClient(question_count=1)
-    monkeypatch.setattr("app.services.quiz_generation.OllamaClient", lambda *a, **k: fake)
+    monkeypatch.setattr("app.services.llm_client.OllamaClient", lambda *a, **k: fake)
 
     notebook_id = _create_notebook(client)
     document_id = _upload(client, notebook_id, "normal.pdf")
@@ -177,7 +181,8 @@ def test_generate_quiz_with_no_body_uses_defaults(client: TestClient, monkeypatc
 
     quiz = _poll_quiz_settled(client, notebook_id)
     assert quiz["status"] == "ready"
-    assert "exactly 8 questions" in fake.prompts[0].lower()
+    quiz_prompt = next(p for p in fake.prompts if "multiple-choice quiz" in p.lower())
+    assert "exactly 8 questions" in quiz_prompt.lower()
 
 
 async def test_generate_quiz_returns_409_when_already_generating(client: TestClient) -> None:
@@ -213,7 +218,7 @@ def test_regenerating_after_failure_can_succeed(client: TestClient, monkeypatch)
     assert first["status"] == "failed"
 
     monkeypatch.setattr(
-        "app.services.quiz_generation.OllamaClient", lambda *a, **k: _FakeReadyClient(question_count=2)
+        "app.services.llm_client.OllamaClient", lambda *a, **k: _FakeReadyClient(question_count=2)
     )
 
     second_response = client.post(f"/notebooks/{notebook_id}/quiz/generate")
@@ -225,7 +230,7 @@ def test_regenerating_after_failure_can_succeed(client: TestClient, monkeypatch)
 
 
 async def test_deleting_notebook_removes_its_quiz(client: TestClient, monkeypatch) -> None:
-    monkeypatch.setattr("app.services.quiz_generation.OllamaClient", lambda *a, **k: _FakeReadyClient())
+    monkeypatch.setattr("app.services.llm_client.OllamaClient", lambda *a, **k: _FakeReadyClient())
 
     notebook_id = _create_notebook(client)
     document_id = _upload(client, notebook_id, "normal.pdf")
