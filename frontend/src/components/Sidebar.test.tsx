@@ -56,6 +56,9 @@ describe("Sidebar", () => {
 
     await user.click(screen.getByRole("button", { name: /^quiz$/i }));
     expect(onSelectSection).toHaveBeenCalledWith("quiz");
+
+    await user.click(screen.getByRole("button", { name: /^slides$/i }));
+    expect(onSelectSection).toHaveBeenCalledWith("slides");
   });
 
   it("does not let the user click into a 'Soon' section", async () => {
@@ -70,9 +73,10 @@ describe("Sidebar", () => {
       />,
     );
 
-    // "Soon" items render as a non-interactive div, not a button.
-    expect(screen.queryByRole("button", { name: /slides/i })).not.toBeInTheDocument();
-    await user.click(screen.getByText("Slides"));
+    // "Soon" items render as a non-interactive div, not a button. Slides used
+    // to be one of these; Interview is the remaining unbuilt section.
+    expect(screen.queryByRole("button", { name: /interview/i })).not.toBeInTheDocument();
+    await user.click(screen.getByText("Interview"));
     expect(onSelectSection).not.toHaveBeenCalled();
   });
 

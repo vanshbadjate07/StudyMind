@@ -7,6 +7,7 @@ import { NotebookHeader } from "./components/NotebookHeader";
 import { OverviewPanel } from "./components/OverviewPanel";
 import { QuizView } from "./components/QuizView";
 import { Sidebar, type WorkspaceSection } from "./components/Sidebar";
+import { SlidesView } from "./components/SlidesView";
 import { UploadDropzone } from "./components/UploadDropzone";
 import { useDocuments } from "./hooks/useDocuments";
 import { useNotebooks } from "./hooks/useNotebooks";
@@ -84,6 +85,12 @@ function App() {
           />
         ) : activeSection === "quiz" ? (
           <QuizView
+            notebookId={activeNotebook.id}
+            notebookName={activeNotebook.name}
+            hasDocuments={documents.some((doc) => doc.status === "ready")}
+          />
+        ) : activeSection === "slides" ? (
+          <SlidesView
             notebookId={activeNotebook.id}
             notebookName={activeNotebook.name}
             hasDocuments={documents.some((doc) => doc.status === "ready")}

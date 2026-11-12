@@ -16,3 +16,9 @@ PRD.md
 specs/
 tasks/
 .claude/
+# Local AI-assistant working notes — not part of the product
+CLAUDE.md
+.cursor/
+.windsurf/
+.github/copilot-instructions.md
+AGENTS.md
