@@ -11,7 +11,7 @@ from app.migrations import (
     migrate_overview_short_summary_column,
     migrate_overview_to_notebook_scope,
 )
-from app.routers import chat, documents, notebooks, presentation, quiz
+from app.routers import chat, documents, interview, notebooks, presentation, quiz
 from app.services.processing_pipeline import reconcile_interrupted_documents
 
 
@@ -45,6 +45,8 @@ app.include_router(documents.router)
 app.include_router(chat.router)
 app.include_router(quiz.router)
 app.include_router(presentation.router)
+app.include_router(interview.notebook_router)
+app.include_router(interview.session_router)
 
 
 @app.get("/health")

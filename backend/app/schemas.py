@@ -9,6 +9,10 @@ from app.models import (
     ChatRole,
     DocumentStatus,
     GoalType,
+    InterviewMode,
+    InterviewQA,
+    InterviewSession,
+    InterviewStatus,
     Overview,
     OverviewStatus,
     Presentation,
@@ -349,3 +353,157 @@ class ChatMessageRead(TimestampedModel):
 
 class ChatMessageList(BaseModel):
     messages: list[ChatMessageRead]
+
+
+# ---------------------------------------------------------------------------
+# Mock interview (PRD 6.7-6.8)
+# ---------------------------------------------------------------------------
+
+
+class InterviewStartRequest(BaseModel):
+    mode: InterviewMode = InterviewMode.TEXT
+    question_limit: int = Field(default=8, ge=3, le=20)
+    # Optional steer, same shape as quiz/presentation's focus.
+    focus: str | None = Field(default=None, max_length=200)
+
+    @field_validator("focus")
+    @classmethod
+    def _blank_focus_is_none(cls, value: str | None) -> str | None:
+        return value.strip() or None if value is not None else None
+
+
+class InterviewAnswerRequest(BaseModel):
+    # No min_length: an empty answer is a real, scoreable event (the user
+    # skipping a question), not invalid input. The scorer treats it as a
+    # non-answer and scores it zero, which is information the final report
+    # should carry rather than a 422 the user has to work around.
+    answer: str = Field(default="", max_length=5000)
+
+
+class InterviewQuestionResult(BaseModel):
+    """Validates the LLM's per-question generation output. `key_concepts` is
+    bounded on both sides: with none, concept coverage has nothing to measure
+    and the score collapses onto similarity alone; with too many, a correct
+    answer gets marked down for omitting trivia."""
+
+    question: str = Field(min_length=1, max_length=500)
+    ideal_answer: str = Field(min_length=1, max_length=2000)
+    key_concepts: list[str] = Field(min_length=2, max_length=6)
+
+
+class InterviewTopicsResult(BaseModel):
+    """Validates the fallback topic-agenda generation, used only when the
+    notebook has no ready overview to take topics from."""
+
+    topics: list[str] = Field(min_length=1, max_length=12)
+
+
+class InterviewQARead(BaseModel):
+    id: str
+    question_index: int
+    topic: str | None
+    question: str
+    is_probe: bool
+    answer_text: str | None
+    score: int | None
+    feedback: str | None
+    missed_points: list[str]
+    features: dict[str, float]
+    # Withheld until the user has answered: showing the model answer next to
+    # an unanswered question would just be the answer key.
+    ideal_answer: str | None
+    key_concepts: list[str]
+    asked_at: datetime
+    answered_at: datetime | None
+
+    @field_serializer("asked_at", "answered_at")
+    def _serialize_utc(self, value: datetime | None) -> str | None:
+        # Same naive-datetime-is-really-UTC problem TimestampedModel solves;
+        # this model has its own timestamp column names, so it needs its own
+        # serializer rather than inheriting that one.
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+    @classmethod
+    def from_model(cls, qa: InterviewQA) -> "InterviewQARead":
+        answered = qa.answered_at is not None
+        return cls(
+            id=qa.id,
+            question_index=qa.question_index,
+            topic=qa.topic,
+            question=qa.question,
+            is_probe=qa.is_probe,
+            answer_text=qa.answer_text,
+            score=qa.score,
+            feedback=qa.feedback,
+            missed_points=json.loads(qa.missed_points_json) if qa.missed_points_json else [],
+            features=json.loads(qa.features_json) if qa.features_json else {},
+            ideal_answer=qa.ideal_answer if answered else None,
+            key_concepts=json.loads(qa.key_concepts_json) if qa.key_concepts_json else [],
+            asked_at=qa.asked_at,
+            answered_at=qa.answered_at,
+        )
+
+
+class InterviewSessionRead(TimestampedModel):
+    id: str
+    notebook_id: str
+    mode: InterviewMode
+    status: InterviewStatus
+    question_limit: int
+    overall_score: int | None
+    weak_areas: list[str]
+    topics: list[str]
+    turns: list[InterviewQARead]
+    # The turn awaiting an answer, if any. Pulled out of `turns` as a
+    # convenience so the UI doesn't have to scan for "the one with no
+    # answered_at" on every render.
+    current_question: InterviewQARead | None
+    answered_count: int
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None
+
+    @field_serializer("completed_at")
+    def _serialize_completed_at(self, value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+    @classmethod
+    def from_model(cls, session: InterviewSession, qa_items: list[InterviewQA]) -> "InterviewSessionRead":
+        turns = [InterviewQARead.from_model(qa) for qa in qa_items]
+        pending = next((turn for turn in turns if turn.answered_at is None), None)
+        return cls(
+            id=session.id,
+            notebook_id=session.notebook_id,
+            mode=session.mode,
+            status=session.status,
+            question_limit=session.question_limit,
+            overall_score=session.overall_score,
+            weak_areas=json.loads(session.weak_areas_json) if session.weak_areas_json else [],
+            topics=json.loads(session.topics_json) if session.topics_json else [],
+            turns=turns,
+            current_question=pending,
+            answered_count=sum(1 for turn in turns if turn.answered_at is not None),
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+            completed_at=session.completed_at,
+        )
+
+
+class AnswerScoringMetrics(BaseModel):
+    """The scoring model's held-out metrics, surfaced through the API so the
+    UI can show how the scorer performs rather than asking the user to take
+    its numbers on trust."""
+
+    held_out_mae: float | None = None
+    held_out_r2: float | None = None
+    model: str | None = None
+    corpus_size: int | None = None
+    using_fallback: bool = False

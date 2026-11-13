@@ -100,6 +100,25 @@ class Settings(BaseSettings):
     presentation_slide_count: int = 10
     presentation_llm_timeout_seconds: float = 300.0
 
+    # Mock interview (PRD 6.7-6.8). Synchronous rather than a background
+    # task, so the timeout is what the user actually waits between answering
+    # and seeing the next question - kept well below quiz/presentation's
+    # budgets because one question is a single small structured output, and a
+    # long wait mid-conversation reads as the app hanging.
+    interview_question_limit: int = 8
+    interview_llm_timeout_seconds: float = 90.0
+    interview_retrieval_top_k: int = 5
+    # Below this, an answer counts as weak and the agent probes the same
+    # topic again instead of advancing. 50 rather than a higher bar because
+    # the score is a percentage of an ideal answer, and a genuinely partial
+    # answer (about half the key points) should move on, not get drilled.
+    interview_low_score_threshold: int = 50
+    # Consecutive weak answers on one topic before the agent gives up on it,
+    # flags it as a weak area, and moves on. Without a cap the loop could
+    # probe the same topic until the question limit ran out, which is the
+    # failure mode that makes an "adaptive" interview worse than a fixed list.
+    interview_max_consecutive_probes: int = 2
+
 
 settings = Settings()
 settings.uploads_dir.mkdir(parents=True, exist_ok=True)

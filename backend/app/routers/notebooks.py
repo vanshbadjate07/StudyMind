@@ -15,6 +15,8 @@ from app.models import (
     Chunk,
     Document,
     DocumentStatus,
+    InterviewQA,
+    InterviewSession,
     Notebook,
     Overview,
     OverviewStatus,
@@ -126,6 +128,19 @@ async def delete_notebook(notebook_id: str, session: AsyncSession = Depends(get_
     await session.execute(sa_delete(Quiz).where(Quiz.notebook_id == notebook_id))
     await session.execute(sa_delete(Presentation).where(Presentation.notebook_id == notebook_id))
     await session.execute(sa_delete(ChatMessage).where(ChatMessage.notebook_id == notebook_id))
+    # Interview turns before their sessions: ondelete="CASCADE" doesn't fire on
+    # SQLite (the foreign_keys pragma is off), which is why every dependent
+    # table above is deleted explicitly rather than left to the database.
+    interview_ids = (
+        await session.execute(
+            select(InterviewSession.id).where(InterviewSession.notebook_id == notebook_id)
+        )
+    ).scalars().all()
+    if interview_ids:
+        await session.execute(sa_delete(InterviewQA).where(InterviewQA.session_id.in_(interview_ids)))
+    await session.execute(
+        sa_delete(InterviewSession).where(InterviewSession.notebook_id == notebook_id)
+    )
     await session.delete(notebook)
     await session.commit()
 

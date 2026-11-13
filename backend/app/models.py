@@ -41,6 +41,16 @@ class PresentationStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+class InterviewMode(str, enum.Enum):
+    TEXT = "text"
+    VOICE = "voice"
+
+
+class InterviewStatus(str, enum.Enum):
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+
+
 class GoalType(str, enum.Enum):
     EXAM = "exam"
     INTERVIEW = "interview"
@@ -266,3 +276,113 @@ class Presentation(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class InterviewSession(Base):
+    """One mock interview run over a notebook's material (PRD 6.7-6.8).
+
+    Unlike Overview/Quiz/Presentation, this is NOT one row per notebook: an
+    interview is an event you do repeatedly, and past runs are the record of
+    whether you improved, so they're kept rather than overwritten.
+
+    Also unlike those three, generation is synchronous rather than a
+    background task with a status row. The user is sitting there waiting for
+    the next question, so a request/response turn is the honest shape -
+    there's no artefact being built in the background to poll for. `status`
+    here tracks how far through the interview the user is, not whether a
+    generation job finished.
+    """
+
+    __tablename__ = "interview_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    notebook_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("notebooks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    mode: Mapped[InterviewMode] = mapped_column(
+        Enum(InterviewMode, values_callable=_enum_values), nullable=False, default=InterviewMode.TEXT
+    )
+    status: Mapped[InterviewStatus] = mapped_column(
+        Enum(InterviewStatus, values_callable=_enum_values),
+        nullable=False,
+        default=InterviewStatus.IN_PROGRESS,
+    )
+    # How many questions this run will ask at most. Stored per session, not
+    # read from settings at report time, so changing the default later can't
+    # retroactively alter how a finished interview reads.
+    question_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=8)
+    overall_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # JSON-encoded list of topic strings the agent flagged as weak, written
+    # once when the interview completes. Read and written as a whole, same
+    # reasoning as Overview.topics_json.
+    weak_areas_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The topic list this run works through, resolved once at start (from the
+    # notebook's overview, or generated) and frozen. Re-resolving per turn
+    # would let the agenda shift mid-interview if a document finished
+    # processing partway through.
+    topics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Python-side default rather than server_default=func.now(): SQLite's
+    # CURRENT_TIMESTAMP only has second resolution, and "the notebook's latest
+    # interview" is resolved by ordering on this column. Starting a second
+    # interview within the same second as the first tied the sort, leaving the
+    # tiebreak to a random UUID - so the wrong session came back as "latest".
+    # Same problem, and same fix, as ChatMessage.created_at.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    qa_items: Mapped[list["InterviewQA"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan", order_by="InterviewQA.question_index"
+    )
+
+
+class InterviewQA(Base):
+    """One question-and-answer turn of an interview.
+
+    `answer_text` holds the transcript when the answer arrived as speech
+    (6.8), so text and voice share one table and one scoring path - a
+    separate voice table would mean a second evaluation path that could
+    silently drift from the text one.
+
+    The scorer's feature breakdown is persisted alongside the score
+    (`features_json`), not recomputed on read: the embedding model and the
+    trained artefact can both change between runs, and a past interview's
+    report should keep saying what it said at the time.
+    """
+
+    __tablename__ = "interview_qa"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    session_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("interview_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    question_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Which topic from the session's agenda this question probes. Nullable
+    # because a generated agenda can be empty for very thin material, in
+    # which case questions are asked against the notebook as a whole.
+    topic: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    # The answer drawn from the user's own material, generated with the
+    # question. This is what the user's answer is scored against, and it's
+    # shown back to them after they answer as the model answer.
+    ideal_answer: Mapped[str] = mapped_column(Text, nullable=False)
+    key_concepts_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # True when this question re-probes a topic the previous answer scored
+    # poorly on, rather than moving to new ground. Persisted so the report
+    # can show the agent's adaptation rather than asserting it happened.
+    is_probe: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    missed_points_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    features_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    asked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    session: Mapped["InterviewSession"] = relationship(back_populates="qa_items")
