@@ -121,7 +121,9 @@ export function InterviewView({ notebookId, notebookName, hasDocuments }: Interv
                 </div>
               )}
 
-              {session?.status === "completed" && <InterviewReport session={session} />}
+              {session?.status === "completed" && (
+                <InterviewReport session={session} sessionId={session.id} />
+              )}
 
               {session !== null && session.turns.length > 0 && (
                 <Transcript turns={session.turns} />
@@ -620,7 +622,9 @@ function AnswerForm({
 
 function InterviewReport({
   session,
+  sessionId,
 }: {
+  sessionId: string;
   session: {
     overall_score: number | null;
     weak_areas: string[];
@@ -631,9 +635,21 @@ function InterviewReport({
 }) {
   const tone = session.overall_score === null ? null : scoreTone(session.overall_score);
   const answered = session.turns.filter((turn) => turn.score !== null);
+  const reportRef = useRef<HTMLElement>(null);
+
+  // The report renders above the transcript, but the user finishes an
+  // interview scrolled to the bottom where the answer box was. Without this
+  // the only visible change on the final submit is the answer box
+  // disappearing, and the report they just earned sits off-screen above
+  // them. Keyed on the session id so it fires once per interview rather
+  // than on every re-render of a completed one.
+  useEffect(() => {
+    reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [sessionId]);
 
   return (
     <section
+      ref={reportRef}
       aria-labelledby="interview-report-heading"
       className="mb-6 rounded-xl border border-line bg-surface p-4 sm:p-5"
     >

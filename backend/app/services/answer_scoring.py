@@ -394,11 +394,11 @@ def _build_feedback(score: int, features: AnswerFeatures, missed: list[str]) -> 
     if features.non_answer:
         return (
             "No answer was given, so there's nothing to score. Even a partial "
-            "attempt scores better than skipping — say what you do recall."
+            "attempt scores better than skipping, so say what you do recall."
         )
 
     if score >= 80:
-        opening = "Strong answer — it covers the substance of what the material says."
+        opening = "Strong answer. It covers the substance of what the material says."
     elif score >= 60:
         opening = "Solid answer, but it leaves out part of what the material covers."
     elif score >= 35:
@@ -417,12 +417,12 @@ def _build_feedback(score: int, features: AnswerFeatures, missed: list[str]) -> 
         parts.append("You named every key point the material raises.")
 
     if features.length_ratio < 0.4 and not features.non_answer:
-        parts.append("It's also noticeably shorter than a complete answer — go into more depth.")
+        parts.append("It is also noticeably shorter than a complete answer, so go into more depth.")
     elif features.length_ratio >= MAX_LENGTH_RATIO:
         parts.append("It's much longer than it needs to be; a tighter answer reads better.")
 
     if features.filler_ratio > 0.12:
-        parts.append("Try to cut the filler words — they make a good answer sound less certain.")
+        parts.append("Try to cut the filler words, which make a good answer sound less certain.")
 
     return " ".join(parts)
 
