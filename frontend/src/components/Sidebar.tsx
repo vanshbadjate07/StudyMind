@@ -1,13 +1,13 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { NotebookRecord } from "../lib/api";
 import { GOAL_LABELS } from "../lib/goalLabels";
 import { InfoDialog } from "./InfoDialog";
 import { PrivacyContent, TermsContent } from "./LegalContent";
 
-export type WorkspaceSection = "documents" | "chat" | "quiz" | "slides";
+export type WorkspaceSection = "documents" | "chat" | "quiz" | "slides" | "interview";
 
 interface NavItem {
-  section: WorkspaceSection | "interview";
+  section: WorkspaceSection;
   label: string;
   icon: ReactNode;
   soon?: boolean;
@@ -44,18 +44,11 @@ const NAV_ITEMS: NavItem[] = [
   {
     section: "slides",
     label: "Slides",
-    icon: (
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M4 5h16v11H4V5Zm4 15h8M12 16v4"
-      />
-    ),
+    icon: <path strokeLinecap="round" strokeLinejoin="round" d="M4 5h16v11H4V5Zm4 15h8M12 16v4" />,
   },
   {
     section: "interview",
     label: "Interview",
-    soon: true,
     icon: (
       <path
         strokeLinecap="round"
@@ -73,11 +66,88 @@ interface SidebarProps {
   onGoHome: () => void;
 }
 
-export function Sidebar({ activeNotebook, activeSection, onSelectSection, onGoHome }: SidebarProps) {
+/** The desktop sidebar. Hidden below `lg`, where MobileNav takes over with
+ * the same contents in a drawer. */
+export function Sidebar(props: SidebarProps) {
+  return (
+    <aside className="hidden w-60 shrink-0 border-r border-line bg-surface lg:flex lg:flex-col">
+      <SidebarBody {...props} />
+    </aside>
+  );
+}
+
+interface MobileNavProps extends SidebarProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+/** The same navigation as a slide-over drawer for small screens. Without
+ * this, a phone had no way to move between Documents, Chat, Quiz, Slides and
+ * Interview at all: the only nav lived in a sidebar hidden below `lg`. */
+export function MobileNav({ open, onClose, onSelectSection, ...rest }: MobileNavProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    // Moving focus into the panel is what makes the drawer usable by
+    // keyboard and screen reader, rather than leaving focus stranded on the
+    // trigger behind the overlay.
+    panelRef.current?.focus();
+    // The page behind the drawer must not scroll while it is open, or
+    // dragging on the overlay scrolls the content underneath on iOS.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 lg:hidden">
+      <button
+        type="button"
+        aria-label="Close navigation"
+        onClick={onClose}
+        className="absolute inset-0 h-full w-full cursor-default bg-ink/40"
+      />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation"
+        tabIndex={-1}
+        className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col border-r border-line bg-surface shadow-lg focus:outline-none"
+      >
+        <SidebarBody
+          {...rest}
+          onSelectSection={(section) => {
+            onSelectSection(section);
+            // Picking a destination should reveal it, not leave the drawer
+            // covering the thing the user just chose.
+            onClose();
+          }}
+          onGoHome={() => {
+            rest.onGoHome();
+            onClose();
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SidebarBody({ activeNotebook, activeSection, onSelectSection, onGoHome }: SidebarProps) {
   const [openDialog, setOpenDialog] = useState<"terms" | "privacy" | null>(null);
 
   return (
-    <aside className="hidden w-60 shrink-0 border-r border-line bg-surface lg:flex lg:flex-col">
+    <>
       <button
         type="button"
         onClick={onGoHome}
@@ -100,7 +170,10 @@ export function Sidebar({ activeNotebook, activeSection, onSelectSection, onGoHo
             <BackIcon />
             All notebooks
           </button>
-          <p className="mt-2 truncate px-0.5 text-sm font-semibold text-ink" title={activeNotebook.name}>
+          <p
+            className="mt-2 truncate px-0.5 text-sm font-semibold text-ink"
+            title={activeNotebook.name}
+          >
             {activeNotebook.name}
           </p>
           {activeNotebook.goal_type && (
@@ -112,7 +185,7 @@ export function Sidebar({ activeNotebook, activeSection, onSelectSection, onGoHo
       )}
 
       {activeNotebook && (
-        <nav aria-label="Workspace sections" className="flex-1 p-3">
+        <nav aria-label="Workspace sections" className="flex-1 overflow-y-auto p-3">
           <p className="px-2 pt-2 pb-1 text-[11px] font-semibold tracking-wider text-ink-faint uppercase">
             Workspace
           </p>
@@ -141,7 +214,10 @@ export function Sidebar({ activeNotebook, activeSection, onSelectSection, onGoHo
                   )}
                 </>
               );
-              const className = `flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              // Taller touch targets than the desktop original: 2.5 units of
+              // vertical padding put these under the ~44px minimum that makes
+              // a tap land reliably on a phone.
+              const className = `flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2 ${
                 isActive
                   ? "bg-brand-subtle text-brand-ink"
                   : "text-ink-muted hover:bg-paper hover:text-ink"
@@ -153,7 +229,7 @@ export function Sidebar({ activeNotebook, activeSection, onSelectSection, onGoHo
                   ) : (
                     <button
                       type="button"
-                      onClick={() => onSelectSection(item.section as WorkspaceSection)}
+                      onClick={() => onSelectSection(item.section)}
                       aria-current={isActive ? "page" : undefined}
                       className={className}
                     >
@@ -174,29 +250,45 @@ export function Sidebar({ activeNotebook, activeSection, onSelectSection, onGoHo
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-medium text-ink">Local workspace</p>
-            <p className="truncate text-[11px] text-ink-muted">Profile & settings</p>
+            <p className="truncate text-[11px] text-ink-muted">Profile &amp; settings</p>
           </div>
           <span className="shrink-0 rounded-full bg-line px-1.5 py-0.5 text-[10px] font-medium text-ink-faint">
             Soon
           </span>
         </div>
         <div className="mt-2 flex gap-3 px-2 text-[11px] text-ink-faint">
-          <button type="button" onClick={() => setOpenDialog("terms")} className="hover:text-ink-muted">
+          <button
+            type="button"
+            onClick={() => setOpenDialog("terms")}
+            className="hover:text-ink-muted"
+          >
             Terms
           </button>
-          <button type="button" onClick={() => setOpenDialog("privacy")} className="hover:text-ink-muted">
+          <button
+            type="button"
+            onClick={() => setOpenDialog("privacy")}
+            className="hover:text-ink-muted"
+          >
             Privacy
           </button>
         </div>
       </div>
 
-      <InfoDialog open={openDialog === "terms"} title="Terms of Service" onClose={() => setOpenDialog(null)}>
+      <InfoDialog
+        open={openDialog === "terms"}
+        title="Terms of Service"
+        onClose={() => setOpenDialog(null)}
+      >
         <TermsContent />
       </InfoDialog>
-      <InfoDialog open={openDialog === "privacy"} title="Privacy Policy" onClose={() => setOpenDialog(null)}>
+      <InfoDialog
+        open={openDialog === "privacy"}
+        title="Privacy Policy"
+        onClose={() => setOpenDialog(null)}
+      >
         <PrivacyContent />
       </InfoDialog>
-    </aside>
+    </>
   );
 }
 

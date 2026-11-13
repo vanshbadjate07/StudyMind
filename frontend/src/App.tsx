@@ -2,11 +2,12 @@ import { useState } from "react";
 import { ChatView } from "./components/ChatView";
 import { DocumentList } from "./components/DocumentList";
 import { HomeView } from "./components/HomeView";
+import { InterviewView } from "./components/InterviewView";
 import { HowItWorks } from "./components/HowItWorks";
 import { NotebookHeader } from "./components/NotebookHeader";
 import { OverviewPanel } from "./components/OverviewPanel";
 import { QuizView } from "./components/QuizView";
-import { Sidebar, type WorkspaceSection } from "./components/Sidebar";
+import { MobileNav, Sidebar, type WorkspaceSection } from "./components/Sidebar";
 import { SlidesView } from "./components/SlidesView";
 import { UploadDropzone } from "./components/UploadDropzone";
 import { useDocuments } from "./hooks/useDocuments";
@@ -33,6 +34,7 @@ function App() {
     removeDocument,
   } = useDocuments(activeNotebook?.id ?? null);
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("documents");
+  const [isNavOpen, setIsNavOpen] = useState(false);
 
   const goHome = () => {
     setActiveId(null);
@@ -56,13 +58,46 @@ function App() {
         onGoHome={goHome}
       />
 
+      <MobileNav
+        open={isNavOpen}
+        onClose={() => setIsNavOpen(false)}
+        activeNotebook={activeNotebook}
+        activeSection={activeSection}
+        onSelectSection={setActiveSection}
+        onGoHome={goHome}
+      />
+
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex items-center gap-2.5 border-b border-line bg-surface px-6 py-4 lg:hidden">
-          <Logo />
-          <div>
-            <p className="text-sm font-semibold tracking-tight text-ink">StudyMind</p>
-            <p className="text-xs text-ink-muted">Your material, understood.</p>
-          </div>
+        <header className="flex items-center gap-3 border-b border-line bg-surface px-4 py-3 sm:px-6 lg:hidden">
+          {/* The menu button only appears with a notebook open, because the
+              drawer's only navigation is the workspace nav - on the home
+              screen it would open an empty panel. */}
+          {activeNotebook !== null && (
+            <button
+              type="button"
+              onClick={() => setIsNavOpen(true)}
+              aria-label="Open navigation"
+              aria-expanded={isNavOpen}
+              className="-ml-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-paper hover:text-ink"
+            >
+              <MenuIcon />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={goHome}
+            className="flex min-w-0 items-center gap-2.5 text-left"
+          >
+            <Logo />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold tracking-tight text-ink">
+                {activeNotebook?.name ?? "StudyMind"}
+              </p>
+              <p className="truncate text-xs text-ink-muted">
+                {activeNotebook === null ? "Your material, understood." : SECTION_LABELS[activeSection]}
+              </p>
+            </div>
+          </button>
         </header>
 
         {activeNotebook === null ? (
@@ -95,6 +130,12 @@ function App() {
             notebookName={activeNotebook.name}
             hasDocuments={documents.some((doc) => doc.status === "ready")}
           />
+        ) : activeSection === "interview" ? (
+          <InterviewView
+            notebookId={activeNotebook.id}
+            notebookName={activeNotebook.name}
+            hasDocuments={documents.some((doc) => doc.status === "ready")}
+          />
         ) : (
           // The scroll container spans the full width so the wheel/trackpad
           // can scroll from anywhere over this pane, not just when the
@@ -104,7 +145,7 @@ function App() {
           // node itself was only as wide as the centered column, so moving
           // the mouse into the side margins took it off that element
           // entirely and scrolling silently stopped working.
-          <main className="min-h-0 flex-1 overflow-y-auto px-6 py-10 lg:px-12">
+          <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-10 lg:px-12">
             <div className="mx-auto w-full max-w-3xl">
               <NotebookHeader
                 notebook={activeNotebook}
@@ -159,6 +200,29 @@ function App() {
         )}
       </div>
     </div>
+  );
+}
+
+const SECTION_LABELS: Record<WorkspaceSection, string> = {
+  documents: "Documents",
+  chat: "Chat",
+  quiz: "Quiz",
+  slides: "Slides",
+  interview: "Interview",
+};
+
+function MenuIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      className="h-5 w-5"
+    >
+      <path strokeLinecap="round" d="M4 7h16M4 12h16M4 17h16" />
+    </svg>
   );
 }
 

@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { NotebookRecord } from "../lib/api";
-import { Sidebar } from "./Sidebar";
+import { MobileNav, Sidebar } from "./Sidebar";
 
 function makeNotebook(overrides: Partial<NotebookRecord> = {}): NotebookRecord {
   return {
@@ -39,7 +39,7 @@ describe("Sidebar", () => {
     expect(screen.getByText("Exam prep")).toBeInTheDocument();
   });
 
-  it("shows the workspace nav once a notebook is open, with Chat, Quiz, and Documents selectable", async () => {
+  it("shows the workspace nav once a notebook is open, with every section selectable", async () => {
     const onSelectSection = vi.fn();
     const user = userEvent.setup();
     render(
@@ -59,25 +59,27 @@ describe("Sidebar", () => {
 
     await user.click(screen.getByRole("button", { name: /^slides$/i }));
     expect(onSelectSection).toHaveBeenCalledWith("slides");
+
+    // Interview was a disabled "Soon" placeholder until 6.7 landed. Every
+    // workspace section is now reachable, so nothing in this nav is inert.
+    await user.click(screen.getByRole("button", { name: /^interview$/i }));
+    expect(onSelectSection).toHaveBeenCalledWith("interview");
   });
 
-  it("does not let the user click into a 'Soon' section", async () => {
-    const onSelectSection = vi.fn();
-    const user = userEvent.setup();
+  it("marks the open section as the current page", () => {
     render(
       <Sidebar
         activeNotebook={makeNotebook()}
-        activeSection="documents"
-        onSelectSection={onSelectSection}
+        activeSection="interview"
+        onSelectSection={vi.fn()}
         onGoHome={vi.fn()}
       />,
     );
 
-    // "Soon" items render as a non-interactive div, not a button. Slides used
-    // to be one of these; Interview is the remaining unbuilt section.
-    expect(screen.queryByRole("button", { name: /interview/i })).not.toBeInTheDocument();
-    await user.click(screen.getByText("Interview"));
-    expect(onSelectSection).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /^interview$/i })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   it("goes home when the logo or 'All notebooks' link is clicked", async () => {
@@ -112,5 +114,69 @@ describe("Sidebar", () => {
     await user.click(screen.getByRole("button", { name: /studymind/i }));
 
     expect(onGoHome).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("MobileNav", () => {
+  const baseProps = {
+    activeNotebook: makeNotebook(),
+    activeSection: "documents" as const,
+    onSelectSection: vi.fn(),
+    onGoHome: vi.fn(),
+    onClose: vi.fn(),
+  };
+
+  it("renders nothing when closed", () => {
+    render(<MobileNav {...baseProps} open={false} />);
+    expect(screen.queryByRole("dialog", { name: /navigation/i })).not.toBeInTheDocument();
+  });
+
+  it("gives phones a way to reach the workspace sections", async () => {
+    // Before this drawer existed the only nav lived in a sidebar hidden below
+    // `lg`, so a phone could not switch sections at all.
+    const onSelectSection = vi.fn();
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <MobileNav {...baseProps} open onSelectSection={onSelectSection} onClose={onClose} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /^interview$/i }));
+
+    expect(onSelectSection).toHaveBeenCalledWith("interview");
+    // Choosing a destination must also reveal it, not leave the drawer
+    // covering the thing just chosen.
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("closes on the backdrop and on Escape", async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    render(<MobileNav {...baseProps} open onClose={onClose} />);
+
+    await user.click(screen.getByRole("button", { name: /close navigation/i }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("closes when going home, so the home screen is not left behind the drawer", async () => {
+    const onGoHome = vi.fn();
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    render(<MobileNav {...baseProps} open onGoHome={onGoHome} onClose={onClose} />);
+
+    await user.click(screen.getByText(/all notebooks/i));
+
+    expect(onGoHome).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("locks the page behind it from scrolling while open", () => {
+    const { unmount } = render(<MobileNav {...baseProps} open />);
+    expect(document.body.style.overflow).toBe("hidden");
+    unmount();
+    expect(document.body.style.overflow).not.toBe("hidden");
   });
 });

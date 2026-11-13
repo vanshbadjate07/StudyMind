@@ -85,6 +85,64 @@ export interface PresentationRecord {
   updated_at: string;
 }
 
+
+export type InterviewMode = "text" | "voice";
+export type InterviewSessionStatus = "in_progress" | "completed";
+
+export interface InterviewTurnRecord {
+  id: string;
+  question_index: number;
+  topic: string | null;
+  question: string;
+  /** True when this question re-probes a topic the previous answer scored
+   * poorly on. Surfaced in the UI so the adaptation is visible rather than
+   * claimed. */
+  is_probe: boolean;
+  answer_text: string | null;
+  score: number | null;
+  feedback: string | null;
+  missed_points: string[];
+  /** The scoring model's feature breakdown, so a score can be explained
+   * rather than just asserted. */
+  features: Record<string, number>;
+  /** Withheld by the API until the turn has been answered. */
+  ideal_answer: string | null;
+  key_concepts: string[];
+  asked_at: string;
+  answered_at: string | null;
+}
+
+export interface InterviewSessionRecord {
+  id: string;
+  notebook_id: string;
+  mode: InterviewMode;
+  status: InterviewSessionStatus;
+  question_limit: number;
+  overall_score: number | null;
+  weak_areas: string[];
+  topics: string[];
+  turns: InterviewTurnRecord[];
+  current_question: InterviewTurnRecord | null;
+  answered_count: number;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface InterviewStartOptions {
+  mode: InterviewMode;
+  question_limit: number;
+  focus?: string;
+}
+
+export interface ScoringMetricsRecord {
+  held_out_mae: number | null;
+  held_out_r2: number | null;
+  model: string | null;
+  corpus_size: number | null;
+  using_fallback: boolean;
+}
+
 export type GoalType = "exam" | "interview" | "skill" | "exploration" | "custom";
 
 export interface NotebookRecord {
@@ -354,4 +412,68 @@ export function uploadDocument(
     formData.append("file", file);
     xhr.send(formData);
   });
+}
+
+
+/** The notebook's most recent interview, finished or in progress. Returns
+ * null before the first one (the backend answers 404 for that), same
+ * convention as the overview, quiz and presentation readers above. */
+export async function getNotebookInterview(
+  notebookId: string,
+): Promise<InterviewSessionRecord | null> {
+  const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/interview`);
+  if (response.status === 404) {
+    return null;
+  }
+  return handleResponse<InterviewSessionRecord>(response);
+}
+
+export async function startNotebookInterview(
+  notebookId: string,
+  options: InterviewStartOptions,
+): Promise<InterviewSessionRecord> {
+  const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/interview/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(options),
+  });
+  return handleResponse<InterviewSessionRecord>(response);
+}
+
+/** Scores the pending answer and returns the whole session, next question
+ * included. The full session rather than just the new turn, so the client
+ * never has to merge state - one response is the complete truth about where
+ * the interview stands. */
+export async function submitInterviewAnswer(
+  interviewId: string,
+  answer: string,
+): Promise<InterviewSessionRecord> {
+  const response = await fetch(`${API_BASE_URL}/interview/${interviewId}/answer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ answer }),
+  });
+  return handleResponse<InterviewSessionRecord>(response);
+}
+
+/** Asks the next question for a session left with none pending - the
+ * recovery path when question generation failed after the previous answer
+ * was already scored and saved. */
+export async function continueInterview(interviewId: string): Promise<InterviewSessionRecord> {
+  const response = await fetch(`${API_BASE_URL}/interview/${interviewId}/continue`, {
+    method: "POST",
+  });
+  return handleResponse<InterviewSessionRecord>(response);
+}
+
+export async function endInterview(interviewId: string): Promise<InterviewSessionRecord> {
+  const response = await fetch(`${API_BASE_URL}/interview/${interviewId}/end`, { method: "POST" });
+  return handleResponse<InterviewSessionRecord>(response);
+}
+
+/** The scoring model's held-out metrics, so the UI can state how the scorer
+ * performs instead of presenting its numbers as self-evident. */
+export async function getScoringMetrics(): Promise<ScoringMetricsRecord> {
+  const response = await fetch(`${API_BASE_URL}/interview/meta/scoring`);
+  return handleResponse<ScoringMetricsRecord>(response);
 }
