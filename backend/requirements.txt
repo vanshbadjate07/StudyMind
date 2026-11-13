@@ -6,6 +6,10 @@ pydantic-settings==2.7.1
 sqlalchemy[asyncio]==2.0.36
 aiosqlite==0.20.0
 greenlet==3.1.1
+# Postgres driver for deployment; SQLite stays the local default.
+# Which one is used is decided entirely by STUDYMIND_DATABASE_URL.
+asyncpg==0.30.0
+alembic==1.14.0
 
 pymupdf==1.25.2
 python-docx==1.2.0

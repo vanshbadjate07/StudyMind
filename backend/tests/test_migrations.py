@@ -6,9 +6,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.db as db_module
 from app.migrations import (
+    BASELINE_REVISION,
     migrate_documents_notebook_column,
     migrate_overview_short_summary_column,
     migrate_overview_to_notebook_scope,
+    run_schema_migrations,
 )
 from app.models import Document, Notebook, Overview, OverviewStatus
 
@@ -398,4 +400,110 @@ async def test_short_summary_migration_on_a_fresh_database_is_a_noop(
 
     await migrate_overview_short_summary_column()  # must not raise on a table that already has the column
 
+    await engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Alembic adoption: getting an existing database onto the managed path
+# ---------------------------------------------------------------------------
+
+
+async def _table_names(engine) -> set[str]:
+    from sqlalchemy import inspect
+
+    async with engine.begin() as conn:
+        return set(await conn.run_sync(lambda sync: inspect(sync).get_table_names()))
+
+
+async def _alembic_version(engine) -> str | None:
+    async with engine.begin() as conn:
+        result = await conn.execute(text("SELECT version_num FROM alembic_version"))
+        row = result.first()
+        return row[0] if row else None
+
+
+@pytest.fixture
+async def empty_db(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'fresh.db'}")
+    monkeypatch.setattr(db_module, "engine", engine)
+    monkeypatch.setattr(
+        db_module, "async_session_factory", async_sessionmaker(engine, expire_on_commit=False)
+    )
+    yield engine
+    await engine.dispose()
+
+
+async def test_fresh_database_is_built_by_alembic(empty_db) -> None:
+    await run_schema_migrations()
+
+    tables = await _table_names(empty_db)
+    assert {"notebooks", "documents", "chunks", "interview_sessions", "interview_qa"} <= tables
+    assert await _alembic_version(empty_db) is not None
+
+
+async def test_running_migrations_twice_is_harmless(empty_db) -> None:
+    await run_schema_migrations()
+    version_after_first = await _alembic_version(empty_db)
+
+    await run_schema_migrations()
+
+    assert await _alembic_version(empty_db) == version_after_first
+
+
+async def test_existing_database_is_adopted_without_losing_data(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The case that matters most: a database created before Alembic existed
+    already has every table, so running the baseline against it would fail.
+    It must be stamped instead, and nothing in it may be touched."""
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'existing.db'}")
+    monkeypatch.setattr(db_module, "engine", engine)
+    monkeypatch.setattr(
+        db_module, "async_session_factory", async_sessionmaker(engine, expire_on_commit=False)
+    )
+
+    # Build it the pre-Alembic way, then put a row in it.
+    async with engine.begin() as conn:
+        await conn.run_sync(db_module.Base.metadata.create_all)
+    async with db_module.async_session_factory() as session:
+        session.add(Notebook(id=str(uuid.uuid4()), name="Pre-existing notebook"))
+        await session.commit()
+
+    await run_schema_migrations()
+
+    assert await _alembic_version(engine) is not None
+    async with db_module.async_session_factory() as session:
+        names = (await session.execute(select(Notebook.name))).scalars().all()
+    assert "Pre-existing notebook" in names
+    await engine.dispose()
+
+
+async def test_adoption_fills_in_tables_added_since_the_database_was_last_opened(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A database predating the interview tables must not be stamped as if
+    it already had them, or those tables would never be created and every
+    interview would fail against a missing table."""
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'older.db'}")
+    monkeypatch.setattr(db_module, "engine", engine)
+    monkeypatch.setattr(
+        db_module, "async_session_factory", async_sessionmaker(engine, expire_on_commit=False)
+    )
+
+    # Everything except the interview tables, mimicking an older install.
+    older_tables = [
+        table
+        for name, table in db_module.Base.metadata.tables.items()
+        if not name.startswith("interview_")
+    ]
+    async with engine.begin() as conn:
+        await conn.run_sync(db_module.Base.metadata.create_all, tables=older_tables)
+    assert "interview_sessions" not in await _table_names(engine)
+
+    await run_schema_migrations()
+
+    tables = await _table_names(engine)
+    assert "interview_sessions" in tables
+    assert "interview_qa" in tables
+    assert await _alembic_version(engine) == BASELINE_REVISION
     await engine.dispose()

@@ -6,21 +6,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import db
 from app.config import settings
-from app.migrations import (
-    migrate_documents_notebook_column,
-    migrate_overview_short_summary_column,
-    migrate_overview_to_notebook_scope,
-)
+from app.migrations import run_schema_migrations
 from app.routers import chat, documents, interview, notebooks, presentation, quiz
 from app.services.processing_pipeline import reconcile_interrupted_documents
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    await db.init_db()
-    await migrate_documents_notebook_column()
-    await migrate_overview_to_notebook_scope()
-    await migrate_overview_short_summary_column()
+    # Alembic owns the schema, which is what lets the same code run on
+    # SQLite locally and Postgres when deployed. An existing pre-Alembic
+    # database is adopted rather than rebuilt - see app/migrations.py.
+    await run_schema_migrations()
     # Accessed via the `db` module (not `from app.db import async_session_factory`)
     # so tests that monkeypatch `db.async_session_factory` to a test engine are
     # respected here too — a plain `from`-import would capture the production
