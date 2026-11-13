@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useInterview } from "../hooks/useInterview";
+import { formatDuration, MAX_RECORDING_SECONDS, useVoiceRecorder } from "../hooks/useVoiceRecorder";
 import {
+  ApiError,
   getScoringMetrics,
+  getVoiceCapability,
+  transcribeAnswer,
+  type InterviewMode,
   type InterviewStartOptions,
   type InterviewTurnRecord,
   type ScoringMetricsRecord,
+  type VoiceCapabilityRecord,
 } from "../lib/api";
 
 const QUESTION_LIMIT_MIN = 3;
@@ -59,6 +65,23 @@ export function InterviewView({ notebookId, notebookName, hasDocuments }: Interv
   // Kept in component state so reopening setup starts from the last choices
   // rather than resetting to defaults, same as QuizView and SlidesView.
   const [lastOptions, setLastOptions] = useState<InterviewStartOptions>(DEFAULT_OPTIONS);
+  // Resolved once per screen rather than per render of the setup form, so
+  // switching between setup and an in-progress interview doesn't re-ask.
+  const [voice, setVoice] = useState<VoiceCapabilityRecord | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void getVoiceCapability()
+      .then((record) => {
+        if (active) setVoice(record);
+      })
+      // Best effort: voice mode is simply not offered if this fails, which
+      // is the same outcome as the backend reporting it unavailable.
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleStart = (options: InterviewStartOptions) => {
     setLastOptions(options);
@@ -137,6 +160,8 @@ export function InterviewView({ notebookId, notebookName, hasDocuments }: Interv
                       questionNumber={session.answered_count + 1}
                       questionLimit={session.question_limit}
                       isSubmitting={isSubmitting}
+                      mode={session.mode}
+                      voice={voice}
                       onSubmit={(answer) => void submitAnswer(answer)}
                     />
                   ) : (
@@ -168,6 +193,7 @@ export function InterviewView({ notebookId, notebookName, hasDocuments }: Interv
                     initial={lastOptions}
                     isStarting={isStarting}
                     hasPreviousRun={session !== null}
+                    voice={voice}
                     onStart={handleStart}
                     onDismiss={dismissReport}
                   />
@@ -213,17 +239,20 @@ function SetupForm({
   initial,
   isStarting,
   hasPreviousRun,
+  voice,
   onStart,
   onDismiss,
 }: {
   initial: InterviewStartOptions;
   isStarting: boolean;
   hasPreviousRun: boolean;
+  voice: VoiceCapabilityRecord | null;
   onStart: (options: InterviewStartOptions) => void;
   onDismiss: () => void;
 }) {
   const [questionLimit, setQuestionLimit] = useState(initial.question_limit);
   const [focus, setFocus] = useState(initial.focus ?? "");
+  const [mode, setMode] = useState<InterviewMode>(initial.mode);
   const [metrics, setMetrics] = useState<ScoringMetricsRecord | null>(null);
 
   useEffect(() => {
@@ -244,7 +273,7 @@ function SetupForm({
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     onStart({
-      mode: "text",
+      mode: voice?.available ? mode : "text",
       question_limit: clampLimit(questionLimit),
       focus: focus.trim() || undefined,
     });
@@ -318,6 +347,50 @@ function SetupForm({
           The interview can finish sooner if it covers every topic in your material.
         </p>
       </div>
+
+      {voice?.available && (
+        <div className="mt-5">
+          <p className="text-xs font-medium text-ink-muted">How you answer</p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {(
+              [
+                {
+                  value: "text" as const,
+                  label: "Type",
+                  description: "Write your answers.",
+                },
+                {
+                  value: "voice" as const,
+                  label: "Speak",
+                  description: "Record answers out loud, closer to a real interview.",
+                },
+              ]
+            ).map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setMode(option.value)}
+                aria-pressed={mode === option.value}
+                className={`rounded-lg border p-3 text-left transition-colors ${
+                  mode === option.value
+                    ? "border-brand bg-brand-subtle"
+                    : "border-line hover:bg-paper"
+                }`}
+              >
+                <span className="text-sm font-medium text-ink">{option.label}</span>
+                <p className="mt-0.5 text-xs text-ink-muted">{option.description}</p>
+              </button>
+            ))}
+          </div>
+          {mode === "voice" && voice.detail && (
+            <p className="mt-2 text-xs text-ink-faint">{voice.detail}</p>
+          )}
+          <p className="mt-2 text-xs text-ink-faint">
+            Spoken answers are transcribed, and you can correct the transcript before it is scored.
+            Both modes are scored exactly the same way.
+          </p>
+        </div>
+      )}
 
       <div className="mt-5">
         <label htmlFor="interview-focus" className="text-xs font-medium text-ink-muted">
@@ -542,12 +615,16 @@ function AnswerForm({
   questionNumber,
   questionLimit,
   isSubmitting,
+  mode,
+  voice,
   onSubmit,
 }: {
   question: InterviewTurnRecord;
   questionNumber: number;
   questionLimit: number;
   isSubmitting: boolean;
+  mode: InterviewMode;
+  voice: VoiceCapabilityRecord | null;
   onSubmit: (answer: string) => void;
 }) {
   const [answer, setAnswer] = useState("");
@@ -587,8 +664,19 @@ function AnswerForm({
 
       <h2 className="mt-2 text-base font-medium text-ink">{question.question}</h2>
 
+      {mode === "voice" && voice?.available && (
+        <VoiceAnswerControls
+          disabled={isSubmitting}
+          onTranscript={(text) =>
+            // Appended rather than replacing: a second recording adds to the
+            // answer instead of silently wiping the first one.
+            setAnswer((previous) => (previous.trim() ? `${previous.trim()} ${text}` : text))
+          }
+        />
+      )}
+
       <label htmlFor="interview-answer" className="mt-4 block text-xs font-medium text-ink-muted">
-        Your answer
+        {mode === "voice" && voice?.available ? "Your answer (edit the transcript if needed)" : "Your answer"}
       </label>
       <textarea
         id="interview-answer"
@@ -713,6 +801,128 @@ function InterviewReport({
         </>
       )}
     </section>
+  );
+}
+
+
+/** Record, review, then submit. The transcript lands in the answer box for
+ * the user to correct, and scoring goes through the same path a typed
+ * answer takes, so text and voice can never drift apart. */
+function VoiceAnswerControls({
+  disabled,
+  onTranscript,
+}: {
+  disabled: boolean;
+  onTranscript: (text: string) => void;
+}) {
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleAudio = async (audio: Blob) => {
+    setIsTranscribing(true);
+    setError(null);
+    try {
+      const result = await transcribeAnswer(audio);
+      if (result.text.trim()) {
+        onTranscript(result.text.trim());
+      } else {
+        setError("Nothing was picked up in that recording. Try again, a bit closer to the mic.");
+      }
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : "Couldn't transcribe that recording. Try again.",
+      );
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
+  const recorder = useVoiceRecorder((audio) => void handleAudio(audio));
+  const isRecording = recorder.state === "recording";
+  const remaining = MAX_RECORDING_SECONDS - recorder.seconds;
+
+  return (
+    <div className="mt-4 rounded-lg border border-line bg-paper p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {isRecording ? (
+          <>
+            <button
+              type="button"
+              onClick={recorder.stop}
+              className="inline-flex items-center gap-2 rounded-lg bg-status-failed px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+            >
+              <StopIcon />
+              Stop and transcribe
+            </button>
+            <button
+              type="button"
+              onClick={recorder.cancel}
+              className="rounded-lg border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors hover:bg-paper"
+            >
+              Discard
+            </button>
+            <span
+              aria-live="polite"
+              className="inline-flex items-center gap-1.5 text-sm tabular-nums text-ink-muted"
+            >
+              <span className="h-2 w-2 animate-pulse rounded-full bg-status-failed" />
+              {formatDuration(recorder.seconds)}
+            </span>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void recorder.start()}
+            disabled={disabled || isTranscribing || recorder.state === "stopping"}
+            className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors hover:bg-paper disabled:opacity-50"
+          >
+            <MicIcon />
+            {isTranscribing ? "Transcribing…" : "Record answer"}
+          </button>
+        )}
+      </div>
+
+      {isRecording && remaining <= 30 && (
+        <p className="mt-2 text-xs text-ink-faint">
+          {remaining > 0
+            ? `Recording stops automatically in ${remaining}s.`
+            : "Recording stopped at the time limit."}
+        </p>
+      )}
+
+      {(recorder.error || error) && (
+        <p role="alert" className="mt-2 text-xs text-status-failed">
+          {recorder.error ?? error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function MicIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+      className="h-4 w-4"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3ZM6 11a6 6 0 0 0 12 0M12 17v4m-3 0h6"
+      />
+    </svg>
+  );
+}
+
+function StopIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" className="h-3.5 w-3.5">
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </svg>
   );
 }
 

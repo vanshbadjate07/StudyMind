@@ -13,22 +13,30 @@ artefacts use. See app/services/interview.py for why.
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.errors import InterviewError
 from app.models import Document, DocumentStatus, InterviewSession, Notebook
+from app.config import settings
 from app.schemas import (
     AnswerScoringMetrics,
     InterviewAnswerRequest,
     InterviewSessionRead,
     InterviewStartRequest,
+    TranscriptionRead,
+    VoiceCapability,
 )
 from app.services import interview as interview_service
 from app.services.answer_scoring import load_metrics
 from app.services.llm_errors import LLMTimeoutError, LLMUnreachableError
+from app.services.transcription import (
+    TranscriptionError,
+    describe_backend,
+    get_default_transcription_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -226,4 +234,80 @@ async def get_scoring_metrics() -> AnswerScoringMetrics:
         model=metrics.get("model"),
         corpus_size=metrics.get("corpus_size"),
         using_fallback=False,
+    )
+
+
+_TRANSCRIPTION_MESSAGES = {
+    "invalid_audio": "That recording couldn't be read. Try recording again.",
+    "transcription_timeout": "Transcribing took too long. Try a shorter recording.",
+    "transcription_unavailable": "Speech to text isn't available right now.",
+}
+
+
+@session_router.post("/transcribe", response_model=TranscriptionRead)
+async def transcribe_answer(file: UploadFile = File(...)) -> TranscriptionRead:
+    """Turns a recorded answer into text (PRD 6.8).
+
+    Transcription and scoring are deliberately two steps rather than one
+    `/answer/voice` call. The transcript comes back for the user to read and
+    correct, and only then goes through the SAME `/answer` endpoint a typed
+    answer uses. Two consequences, both wanted: there is exactly one scoring
+    path for text and voice, so they cannot drift apart; and a
+    mis-transcription the user never saw can't cost them a question and
+    read as the scorer being wrong.
+    """
+    audio = await file.read()
+    if not audio:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="That recording was empty."
+        )
+    if len(audio) > settings.max_audio_bytes:
+        limit_mb = settings.max_audio_bytes // (1024 * 1024)
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"That recording is too long. Keep it under {limit_mb}MB.",
+        )
+
+    client = get_default_transcription_client()
+    try:
+        text = await client.transcribe(audio, file.filename or "answer.webm")
+    except TranscriptionError as exc:
+        detail = _TRANSCRIPTION_MESSAGES.get(exc.reason) or "Couldn't transcribe that recording."
+        # 422 for audio this server will never read, 503 for a backend that
+        # might work on retry - so the client knows whether retrying helps.
+        code = (
+            status.HTTP_422_UNPROCESSABLE_ENTITY
+            if exc.reason == "invalid_audio"
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+        raise HTTPException(status_code=code, detail=detail) from exc
+
+    return TranscriptionRead(text=text, backend=describe_backend())
+
+
+@session_router.get("/meta/voice", response_model=VoiceCapability)
+async def get_voice_capability() -> VoiceCapability:
+    """Whether voice answers can be transcribed, checked up front so the UI
+    can hide voice mode rather than offering something that fails when the
+    user has already recorded an answer."""
+    backend = describe_backend()
+    if backend == "cloud":
+        return VoiceCapability(available=True, backend=backend)
+
+    try:
+        import faster_whisper  # noqa: F401
+    except ImportError:
+        return VoiceCapability(
+            available=False,
+            backend=backend,
+            detail=(
+                "Local speech to text needs faster-whisper. Install it with "
+                "`pip install -r requirements-voice.txt`, or set a Groq API key "
+                "to transcribe in the cloud."
+            ),
+        )
+    return VoiceCapability(
+        available=True,
+        backend=backend,
+        detail="Transcribing locally. The first recording is slower while the model loads.",
     )

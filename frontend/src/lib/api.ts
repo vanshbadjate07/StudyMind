@@ -129,6 +129,18 @@ export interface InterviewSessionRecord {
   completed_at: string | null;
 }
 
+
+export interface TranscriptionRecord {
+  text: string;
+  backend: string;
+}
+
+export interface VoiceCapabilityRecord {
+  available: boolean;
+  backend: string;
+  detail: string | null;
+}
+
 export interface InterviewStartOptions {
   mode: InterviewMode;
   question_limit: number;
@@ -476,4 +488,30 @@ export async function endInterview(interviewId: string): Promise<InterviewSessio
 export async function getScoringMetrics(): Promise<ScoringMetricsRecord> {
   const response = await fetch(`${API_BASE_URL}/interview/meta/scoring`);
   return handleResponse<ScoringMetricsRecord>(response);
+}
+
+
+/** Whether spoken answers can be transcribed here, and by what. Checked
+ * before offering voice mode, so the UI never asks for the microphone and
+ * then fails once the user has already recorded something. */
+export async function getVoiceCapability(): Promise<VoiceCapabilityRecord> {
+  const response = await fetch(`${API_BASE_URL}/interview/meta/voice`);
+  return handleResponse<VoiceCapabilityRecord>(response);
+}
+
+/** Turns a recording into text. Scoring is a SEPARATE step through the same
+ * endpoint a typed answer uses: the transcript comes back for the user to
+ * read and fix first, so a mis-transcription they never saw can't cost them
+ * a question and read as the scorer being wrong. */
+export async function transcribeAnswer(audio: Blob): Promise<TranscriptionRecord> {
+  const form = new FormData();
+  // The extension matters: the backend passes the filename through to the
+  // transcription backend, which infers the container format from it.
+  const extension = audio.type.includes("ogg") ? "ogg" : audio.type.includes("mp4") ? "mp4" : "webm";
+  form.append("file", audio, `answer.${extension}`);
+  const response = await fetch(`${API_BASE_URL}/interview/transcribe`, {
+    method: "POST",
+    body: form,
+  });
+  return handleResponse<TranscriptionRecord>(response);
 }

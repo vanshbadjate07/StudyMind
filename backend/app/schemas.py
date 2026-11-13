@@ -507,3 +507,23 @@ class AnswerScoringMetrics(BaseModel):
     model: str | None = None
     corpus_size: int | None = None
     using_fallback: bool = False
+
+
+class TranscriptionRead(BaseModel):
+    """A spoken answer turned into text. Returned for the user to read and
+    correct BEFORE it is scored, rather than scored directly from audio:
+    a mis-transcription the user never saw would cost them a question and
+    look like the scorer being wrong."""
+
+    text: str
+    backend: str
+
+
+class VoiceCapability(BaseModel):
+    """Whether voice answers can be transcribed here, and by what. Lets the
+    UI hide voice mode when it cannot work, and warn about a slow first run
+    when transcribing locally, instead of failing at the moment of use."""
+
+    available: bool
+    backend: str
+    detail: str | None = None

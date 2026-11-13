@@ -55,9 +55,22 @@ const METRICS: api.ScoringMetricsRecord = {
   using_fallback: false,
 };
 
+const VOICE_AVAILABLE: api.VoiceCapabilityRecord = {
+  available: true,
+  backend: "cloud",
+  detail: null,
+};
+
 describe("InterviewView", () => {
   beforeEach(() => {
     vi.spyOn(api, "getScoringMetrics").mockResolvedValue(METRICS);
+    // Voice is off unless a test opts in, so the existing expectations stay
+    // about the text path.
+    vi.spyOn(api, "getVoiceCapability").mockResolvedValue({
+      available: false,
+      backend: "local",
+      detail: "Local speech to text needs faster-whisper.",
+    });
   });
 
   afterEach(() => {
@@ -400,5 +413,85 @@ describe("InterviewView", () => {
 
     await screen.findByText(/what about collisions/i);
     expect(screen.getByLabelText(/your answer/i)).toHaveValue("");
+  });
+});
+
+describe("InterviewView voice mode", () => {
+  beforeEach(() => {
+    vi.spyOn(api, "getScoringMetrics").mockResolvedValue(METRICS);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("does not offer voice when the server cannot transcribe", async () => {
+    // Checked up front rather than failing after the user has recorded an
+    // answer and found out it cannot be used.
+    vi.spyOn(api, "getVoiceCapability").mockResolvedValue({
+      available: false,
+      backend: "local",
+      detail: "Local speech to text needs faster-whisper.",
+    });
+    vi.spyOn(api, "getNotebookInterview").mockResolvedValue(null);
+
+    render(<InterviewView notebookId="nb-1" notebookName="DSA Notes" hasDocuments />);
+    await screen.findByRole("button", { name: /start interview/i });
+
+    expect(screen.queryByText("How you answer")).not.toBeInTheDocument();
+  });
+
+  it("offers a choice of typing or speaking when transcription is available", async () => {
+    vi.spyOn(api, "getVoiceCapability").mockResolvedValue(VOICE_AVAILABLE);
+    vi.spyOn(api, "getNotebookInterview").mockResolvedValue(null);
+
+    render(<InterviewView notebookId="nb-1" notebookName="DSA Notes" hasDocuments />);
+
+    expect(await screen.findByText("How you answer")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /speak/i })).toBeInTheDocument();
+    // States plainly that both modes are judged identically.
+    expect(screen.getByText(/both modes are scored exactly the same way/i)).toBeInTheDocument();
+  });
+
+  it("starts a voice interview when speaking is chosen", async () => {
+    vi.spyOn(api, "getVoiceCapability").mockResolvedValue(VOICE_AVAILABLE);
+    vi.spyOn(api, "getNotebookInterview").mockResolvedValue(null);
+    const start = vi
+      .spyOn(api, "startNotebookInterview")
+      .mockResolvedValue(makeSession({ mode: "voice" }));
+    const user = userEvent.setup();
+
+    render(<InterviewView notebookId="nb-1" notebookName="DSA Notes" hasDocuments />);
+    await screen.findByRole("button", { name: /speak/i });
+
+    await user.click(screen.getByRole("button", { name: /speak/i }));
+    await user.click(screen.getByRole("button", { name: /start interview/i }));
+
+    expect(start).toHaveBeenCalledWith(
+      "nb-1",
+      expect.objectContaining({ mode: "voice" }),
+    );
+  });
+
+  it("shows a record button during a voice interview, alongside the answer box", async () => {
+    // The text box stays: the transcript lands there for correction, and
+    // typing remains available if the microphone is not cooperating.
+    vi.spyOn(api, "getVoiceCapability").mockResolvedValue(VOICE_AVAILABLE);
+    vi.spyOn(api, "getNotebookInterview").mockResolvedValue(makeSession({ mode: "voice" }));
+
+    render(<InterviewView notebookId="nb-1" notebookName="DSA Notes" hasDocuments />);
+
+    expect(await screen.findByRole("button", { name: /record answer/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/edit the transcript if needed/i)).toBeInTheDocument();
+  });
+
+  it("keeps the record button out of a typed interview", async () => {
+    vi.spyOn(api, "getVoiceCapability").mockResolvedValue(VOICE_AVAILABLE);
+    vi.spyOn(api, "getNotebookInterview").mockResolvedValue(makeSession({ mode: "text" }));
+
+    render(<InterviewView notebookId="nb-1" notebookName="DSA Notes" hasDocuments />);
+
+    await screen.findByLabelText(/your answer/i);
+    expect(screen.queryByRole("button", { name: /record answer/i })).not.toBeInTheDocument();
   });
 });

@@ -119,6 +119,20 @@ class Settings(BaseSettings):
     # failure mode that makes an "adaptive" interview worse than a fixed list.
     interview_max_consecutive_probes: int = 2
 
+    # Voice mode (PRD 6.8). Groq's hosted Whisper when a Groq key is set,
+    # local faster-whisper otherwise - see app/services/transcription.py.
+    # "turbo" is the right default on a free tier: near large-v3 accuracy at
+    # a fraction of the latency, which matters when the user is waiting mid
+    # interview. "base" locally for the same reason, trading some accuracy
+    # for a transcription that finishes on a laptop CPU in seconds.
+    groq_whisper_model: str = "whisper-large-v3-turbo"
+    whisper_model_size: str = "base"
+    transcription_timeout_seconds: float = 90.0
+    # Groq's own upload ceiling on the free tier is 25MB; matching it here
+    # means an oversized clip is rejected with a clear message before being
+    # sent, rather than failing opaquely at the provider.
+    max_audio_bytes: int = 25 * 1024 * 1024
+
 
 settings = Settings()
 settings.uploads_dir.mkdir(parents=True, exist_ok=True)

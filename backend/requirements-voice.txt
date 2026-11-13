@@ -1,0 +1,16 @@
+# Optional: local, offline speech to text for the voice interview (PRD 6.8).
+#
+# Only needed to transcribe WITHOUT a Groq API key. With a Groq key set in
+# backend/.env, transcription goes to Groq's free hosted Whisper and nothing
+# here is required.
+#
+# Kept out of requirements.txt deliberately: faster-whisper pulls in
+# ctranslate2 and av, and downloads roughly 500MB of model weights on first
+# use. That is a heavy cost to impose on every install when most setups will
+# have a free Groq key. app/services/transcription.py imports it lazily, so
+# its absence is a clear error on the voice path only.
+#
+#     pip install -r requirements-voice.txt
+#
+# Native ARM64 wheels exist, so this runs on Apple Silicon without Rosetta.
+faster-whisper==1.1.1
