@@ -1,0 +1,42 @@
+{
+  "model": "GradientBoostingRegressor",
+  "feature_order": [
+    "semantic_similarity",
+    "concept_coverage",
+    "length_ratio",
+    "filler_ratio",
+    "non_answer"
+  ],
+  "random_seed": 20260817,
+  "corpus_size": 312,
+  "seed_items": 12,
+  "train_rows": 234,
+  "test_rows": 78,
+  "split": "grouped by seed item, so no item appears in both train and test",
+  "held_out_mae": 1.37,
+  "held_out_r2": 0.9924,
+  "held_out_mae_by_tier": {
+    "complete": 0.41,
+    "complete_rambling": 0.91,
+    "complete_spoken": 2.24,
+    "non_answer": 0.02,
+    "off_topic": 0.29,
+    "partial": 1.53,
+    "partial_short": 1.91,
+    "partial_spoken": 2.6,
+    "strong": 1.42,
+    "strong_spoken": 1.43,
+    "thin": 0.53,
+    "thin_short": 4.51,
+    "thin_spoken": 1.49,
+    "vague": 4.47
+  },
+  "feature_importances": {
+    "semantic_similarity": 0.5823,
+    "concept_coverage": 0.2986,
+    "length_ratio": 0.1129,
+    "filler_ratio": 0.0062,
+    "non_answer": 0.0
+  },
+  "label_provenance": "Labels are assigned by construction from how each answer was generated (concepts retained, fraction of the ideal answer kept, delivery penalties), not by human grading. Metrics therefore measure generalisation across constructed variants, not agreement with human examiners."
+}
