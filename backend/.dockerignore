@@ -1,0 +1,22 @@
+# The venv is host-specific (macOS arm64 here) and would both bloat the
+# image and shadow the Linux packages installed inside it.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Real API keys. The image must never carry them; they are injected as
+# environment variables at run time.
+.env
+.env.local
+
+# Local data: uploads, the SQLite file, Chroma's store, generated decks.
+# A container gets its own, on a mounted volume in production.
+data/
+
+# Tests and their fixtures are not needed at run time and add weight.
+# ml/ is NOT excluded: ml/artifacts/ holds the trained answer-scoring
+# model the app loads at request time - excluding it would silently ship
+# an image that only ever uses the rule-based fallback scorer.
+tests/

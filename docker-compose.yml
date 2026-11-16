@@ -1,0 +1,83 @@
+# StudyMind, running anywhere Docker runs.
+#
+#     docker compose up --build
+#
+# Then open http://localhost:5173. The first build takes several minutes
+# (torch and the embedding model), and is cached after that.
+#
+# This brings up Postgres rather than SQLite so that what runs locally
+# matches what runs in production. SQLite remains the default when running
+# the backend directly with uvicorn, which is still the quickest way to
+# develop.
+#
+# The language model is NOT part of this stack. Ollama cannot run usefully
+# in a free-tier container, so the backend talks to the free cloud provider
+# chain (Cerebras, Groq, Gemini) using the keys in backend/.env. To use a
+# local Ollama from inside these containers instead, leave those keys empty
+# and set STUDYMIND_OLLAMA_HOST to http://host.docker.internal:11434.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: studymind
+      POSTGRES_PASSWORD: studymind
+      POSTGRES_DB: studymind
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    # The backend waits for this to pass before starting, so it never races
+    # the database and crash-loops on an initial migration.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U studymind -d studymind"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      # +asyncpg is required: the app is async throughout, and a plain
+      # postgresql:// URL fails at connection time.
+      STUDYMIND_DATABASE_URL: postgresql+asyncpg://studymind:studymind@db:5432/studymind
+      STUDYMIND_CORS_ORIGINS: '["http://localhost:5173","http://127.0.0.1:5173"]'
+      PORT: 8000
+    env_file:
+      # Supplies the LLM provider keys. Optional: without it the backend
+      # falls back to Ollama, which is not reachable from here by default,
+      # so generation features will report the AI service as unreachable
+      # while uploads, extraction and retrieval still work.
+      - path: ./backend/.env
+        required: false
+    volumes:
+      # Uploads, Chroma's vector store and generated decks. Named rather
+      # than bind-mounted so it survives `docker compose down` and does not
+      # depend on host paths.
+      - backend_data:/app/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked in at build time: Vite inlines import.meta.env, so a static
+        # bundle has no runtime environment to read. This is the URL the
+        # BROWSER uses, which is why it is localhost rather than the
+        # `backend` service name - the request comes from the host, not
+        # from inside the compose network.
+        VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:8080"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  backend_data:

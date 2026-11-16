@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -132,6 +133,35 @@ class Settings(BaseSettings):
     # means an oversized clip is rejected with a clear message before being
     # sent, rather than failing opaquely at the provider.
     max_audio_bytes: int = 25 * 1024 * 1024
+
+
+    @model_validator(mode="after")
+    def _derive_storage_paths(self) -> "Settings":
+        """Makes the storage subdirectories and the SQLite file follow
+        `data_dir` unless each was set explicitly.
+
+        Without this, STUDYMIND_DATA_DIR looks like it relocates storage but
+        silently moves nothing, because uploads/presentations/chroma and the
+        database path are all independently defaulted off BACKEND_DIR. That
+        matters wherever persistent storage is mounted somewhere specific -
+        a Docker volume, or a Hugging Face Space's /data - where one
+        variable should move everything rather than four having to agree.
+
+        Each path is only redirected if it still holds its own default, so
+        setting STUDYMIND_CHROMA_DIR explicitly continues to win.
+        """
+        default_root = BACKEND_DIR / "data"
+        if self.data_dir != default_root:
+            for field, name in (
+                ("uploads_dir", "uploads"),
+                ("presentations_dir", "presentations"),
+                ("chroma_dir", "chroma"),
+            ):
+                if getattr(self, field) == default_root / name:
+                    setattr(self, field, self.data_dir / name)
+            if self.database_url == f"sqlite+aiosqlite:///{default_root / 'studymind.db'}":
+                self.database_url = f"sqlite+aiosqlite:///{self.data_dir / 'studymind.db'}"
+        return self
 
 
 settings = Settings()
