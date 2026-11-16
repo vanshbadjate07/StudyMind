@@ -89,7 +89,7 @@ class TestHasDuplicateOptions:
         assert _has_duplicate_options(q) is True
 
     def test_four_genuinely_different_options_is_not_a_duplicate(self) -> None:
-        q = QuizQuestionResult(**_question(options=["Mistral", "Llama", "GPT-4", "Claude"]))
+        q = QuizQuestionResult(**_question(options=["Mistral", "Llama", "GPT-4", "Gemini"]))
         assert _has_duplicate_options(q) is False
 
 

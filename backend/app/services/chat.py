@@ -363,7 +363,7 @@ async def edit_question(
     vector_store: VectorStore | None = None,
     client: LLMClient | None = None,
 ) -> ChatMessage:
-    """Edits a past question in place, the way Claude/ChatGPT do it: the
+    """Edits a past question in place, the way modern AI chat apps do it: the
     edited question becomes the new end of the conversation, and everything
     after it — its old answer, and any later back-and-forth — is discarded
     rather than kept as an orphaned branch, since this app has no UI for

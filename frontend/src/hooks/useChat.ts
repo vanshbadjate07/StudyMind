@@ -80,7 +80,7 @@ export function useChat(notebookId: string | null) {
     [notebookId],
   );
 
-  // Edits a past question in place, Claude/ChatGPT-style: the edited
+  // Edits a past question in place, the way modern AI chat apps do: the edited
   // question becomes the new end of the conversation, and everything after
   // it (its old answer, any later turns) is discarded — the backend does
   // the same truncation (see chat.py's edit_question), so this optimistic

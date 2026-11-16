@@ -147,7 +147,7 @@ describe("ChatView", () => {
     expect(screen.queryByText(/\*\*MongoDB\*\*/)).not.toBeInTheDocument();
   });
 
-  it("edits a past question in place, like Claude/ChatGPT — replacing it and its old answer", async () => {
+  it("edits a past question in place, like modern AI chat apps, replacing it and its old answer", async () => {
     vi.spyOn(api, "listChatMessages").mockResolvedValue([
       makeMessage({ id: "m1", role: "user", content: "What is MongoDB?" }),
       makeMessage({ id: "m2", role: "assistant", content: "A NoSQL database." }),
