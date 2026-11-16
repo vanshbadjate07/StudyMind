@@ -26,6 +26,23 @@ class Settings(BaseSettings):
     embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
     chroma_collection_name: str = "document_chunks"
 
+    # Which embedding backend produces vectors: "local" (sentence-transformers,
+    # offline, the default) or "gemini" (Google's free embedding API, for
+    # hosts too small to load torch). EXPLICIT on purpose, never inferred
+    # from which API keys exist: embeddings are compared against vectors
+    # already stored in Chroma, and two models' vectors are mutually
+    # meaningless - auto-switching would silently poison an existing store.
+    # Switching this on a live deployment orphans its stored vectors;
+    # re-upload documents afterwards.
+    embedding_provider: str = "local"
+    gemini_embedding_model: str = "gemini-embedding-001"
+    # 768 rather than the model's full 3072: Chroma stores every dimension
+    # of every chunk, quadrupling storage for retrieval quality this app's
+    # chunk-sized texts don't gain from. Vectors are re-normalized after
+    # truncation (Google only guarantees unit length at full width).
+    gemini_embedding_dimensions: int = 768
+    embedding_timeout_seconds: float = 30.0
+
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
 
     # Cloud LLM provider chain (Cerebras -> Groq -> Gemini): used in

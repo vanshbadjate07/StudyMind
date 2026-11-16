@@ -111,9 +111,10 @@ embedding model is baked into the image so cold starts are predictable.
 ## Deployment (all free tier)
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for the complete walkthrough: frontend on
-Vercel, backend as a Hugging Face Docker Space (16 GB RAM free, enough for
-the embedding model), database on Neon Postgres, inference on the
-Cerebras/Groq/Gemini free tiers.
+Vercel, a slim backend on Render's free tier with embeddings served by
+Google's free embedding API (`STUDYMIND_EMBEDDING_PROVIDER=gemini` - the
+512 MB instance cannot hold torch), database on Neon Postgres, inference on
+the Cerebras/Groq/Gemini free tiers.
 
 ## Tests
 

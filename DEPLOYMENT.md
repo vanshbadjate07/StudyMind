@@ -1,110 +1,78 @@
 # Deploying StudyMind, entirely on free tiers
 
-The pieces and why each host was chosen:
+> **Status note.** This guide was rewritten after Hugging Face put Docker
+> Spaces behind its PRO subscription (mid-2026) - verified directly against
+> their API. The free path today is a slim backend on Render with
+> embeddings served by Google's free embedding API instead of in-process
+> torch, which Render's 512MB cannot hold.
 
 | Piece | Host | Why |
 |---|---|---|
-| Backend | Hugging Face Spaces (Docker) | The embedding model needs ~1.5 GB RAM. Render's free tier (512 MB) OOMs on it; HF's free CPU tier gives 16 GB and persistent storage, no card required. |
+| Backend | Render free web service | Still card-free. 512MB RAM, which fits the app once embeddings are remote. Sleeps after 15 min idle; first request after pays a ~30-60s cold start. |
+| Embeddings | Gemini embedding API | Free tier, same keys as the LLM chain. `STUDYMIND_EMBEDDING_PROVIDER=gemini` switches the whole app; vectors are normalized to match the local model's contract. |
 | Frontend | Vercel | Static Vite output, free, global CDN. |
-| Database | Neon Postgres | Free Postgres that survives redeploys. HF's container filesystem is ephemeral, so SQLite there would be wiped on every restart. |
-| LLM | Cerebras → Groq → Gemini free tiers | Already built into the backend; the chain fails over between providers and between multiple keys per provider. |
-| Speech-to-text | Groq hosted Whisper | Free tier, no model download; used automatically when a Groq key is set. |
+| Database | Neon Postgres | Free Postgres that survives redeploys and does not expire (Render's own free Postgres is deleted after 30 days). |
+| LLM / voice | Cerebras → Groq → Gemini free tiers | Already built in, with failover across providers and across multiple keys per provider. |
 
-Nothing below needs a credit card.
+## 1. Database - Neon
 
-## 1. Database — Neon
+Create a free project at [neon.tech](https://neon.tech), copy the connection
+string, and change the scheme to the async driver:
 
-1. Create a project at [neon.tech](https://neon.tech) (free tier).
-2. Copy the connection string and change the scheme for the async driver:
+```
+postgresql://USER:PASSWORD@HOST/db  →  postgresql+asyncpg://USER:PASSWORD@HOST/db
+```
 
-   ```
-   postgresql://USER:PASSWORD@HOST/dbname
-   →
-   postgresql+asyncpg://USER:PASSWORD@HOST/dbname
-   ```
+Migrations run automatically on the backend's first startup.
 
-   The `+asyncpg` suffix is required — the backend is async throughout.
+## 2. Backend - Render
 
-No manual schema setup: migrations run automatically on the backend's first
-startup.
-
-## 2. Backend — Hugging Face Space
-
-1. Create a new Space at [huggingface.co/new-space](https://huggingface.co/new-space),
-   SDK **Docker**, hardware **CPU basic (free)**.
-2. Push the `backend/` directory as the Space's content. The simplest way,
-   from the repository root:
-
-   ```bash
-   git subtree push --prefix backend https://huggingface.co/spaces/YOUR_NAME/studymind-api main
-   ```
-
-   The Space builds `backend/Dockerfile` as-is. It already respects HF's
-   conventions: it listens on `$PORT`, runs as uid 1000, and bakes the
-   embedding model into the image so the Space does not re-download it on
-   every cold start.
-3. In the Space's **Settings → Variables and secrets**, set:
+1. [dashboard.render.com](https://dashboard.render.com) → New → Web Service →
+   connect the GitHub repository.
+2. Settings: Root Directory `backend`, Runtime **Python**, Instance **Free**,
+   Build command `pip install -r requirements-deploy.txt`, Start command
+   `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+   (`requirements-deploy.txt` is requirements.txt minus sentence-transformers
+   and torch - the whole reason the app fits in 512MB.)
+3. Environment variables:
 
    | Variable | Value |
    |---|---|
-   | `PORT` | `7860` (HF's expected port) |
-   | `STUDYMIND_DATABASE_URL` | the Neon URL from step 1 (secret) |
-   | `STUDYMIND_CEREBRAS_API_KEYS` | `["key1"]` or `["key1","key2"]` (secret) |
-   | `STUDYMIND_GROQ_API_KEYS` | same shape (secret) |
-   | `STUDYMIND_GEMINI_API_KEYS` | same shape (secret) |
+   | `PYTHON_VERSION` | `3.12.7` |
+   | `STUDYMIND_DATABASE_URL` | the Neon URL from step 1 |
+   | `STUDYMIND_EMBEDDING_PROVIDER` | `gemini` |
+   | `STUDYMIND_GEMINI_API_KEYS` | `["key1"]` (also used for embeddings) |
+   | `STUDYMIND_CEREBRAS_API_KEYS` / `STUDYMIND_GROQ_API_KEYS` | `["key1"]` each, optional but recommended |
    | `STUDYMIND_CORS_ORIGINS` | `["https://YOUR-APP.vercel.app"]` |
-   | `STUDYMIND_DATA_DIR` | `/data` — only if you enable persistent storage |
 
-   Key sources, all free: [cloud.cerebras.ai](https://cloud.cerebras.ai),
-   [console.groq.com](https://console.groq.com),
-   [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
-   At least one provider must have a key; more providers and more keys per
-   provider just add resilience and quota.
+4. Uploaded files and the Chroma index live on Render's ephemeral disk: they
+   vanish on redeploy/restart while the metadata in Neon survives, so
+   documents reappear without retrieval until re-uploaded. Acceptable for a
+   demo; a paid disk fixes it if it ever matters.
 
-4. **Uploads and vectors.** Without persistent storage, uploaded files and
-   the Chroma index live on the container filesystem and vanish on restart
-   (the metadata in Neon survives, so documents will show as present but
-   lose retrieval). For a demo that is usually acceptable; to keep them,
-   enable the Space's persistent storage and set `STUDYMIND_DATA_DIR=/data` —
-   that single variable relocates uploads, the vector store and generated
-   decks onto the mounted disk.
+## 3. Frontend - Vercel
 
-The API is then at `https://YOUR_NAME-studymind-api.hf.space`. Check
-`/health` returns `{"status":"ok"}`.
-
-## 3. Frontend — Vercel
-
-1. Import the GitHub repository at [vercel.com/new](https://vercel.com/new).
-2. Set **Root Directory** to `frontend`. Vercel detects Vite and uses
-   `npm run build` / `dist` automatically.
-3. Add one environment variable:
-
-   | Variable | Value |
-   |---|---|
-   | `VITE_API_BASE_URL` | `https://YOUR_NAME-studymind-api.hf.space` |
-
-   It is baked in at build time (Vite inlines it), so changing it later
-   means redeploying — that is expected.
-4. Deploy, then make sure the Vercel URL is listed in the backend's
-   `STUDYMIND_CORS_ORIGINS` exactly, scheme included.
+Import the repo at [vercel.com/new](https://vercel.com/new), Root Directory
+`frontend`, and set `VITE_API_BASE_URL` to the Render URL. It is baked in at
+build time, so changing it means redeploying. Afterwards make sure the
+Vercel URL appears in the backend's `STUDYMIND_CORS_ORIGINS`, scheme
+included.
 
 ## 4. Smoke test
 
-1. Open the Vercel URL, create a notebook, upload a small PDF.
-2. Wait for **Ready**, confirm the overview generates.
-3. Ask a chat question — the answer should cite your document.
-4. Generate a quiz and a deck; download the .pptx.
-5. Start an interview, give one deliberately bad answer, and confirm the
-   next question is marked **Follow up** on the same topic.
+Upload a small PDF, wait for Ready, ask a chat question (it should cite the
+document), generate a quiz, then start an interview and answer one question
+badly - the next question should be marked "Follow up" on the same topic.
 
-## Free-tier limits worth knowing
+## Worth knowing
 
-- **HF Spaces** sleep after ~48 h of inactivity; the first request after
-  that waits for a cold start (~1 min). Startup is migration + model load,
-  both fast because the model is baked into the image.
-- **Neon** autosuspends its compute after inactivity; the first query pays
-  a ~1 s resume.
-- **Provider quotas** reset daily; the chain moves to the next key/provider
-  automatically, so a single exhausted key degrades nothing.
-- **Groq Whisper** caps audio uploads at 25 MB; the recorder stops at three
-  minutes long before that matters.
+- **Embedding provider is a one-way switch per store.** Local and Gemini
+  vectors are mutually meaningless; switching the provider on an existing
+  deployment orphans its stored vectors. Re-upload documents after changing
+  it. (This is also why the provider is an explicit setting and never
+  inferred from which keys exist.)
+- **Retrieval threshold.** `STUDYMIND_CHAT_RELEVANCE_DISTANCE_THRESHOLD`
+  (default 1.15) was calibrated against the local model. Gemini vectors may
+  warrant re-tuning if grounded chat seems too strict or too lax.
+- **Quotas** reset daily; the LLM chain fails over across keys and
+  providers automatically.
